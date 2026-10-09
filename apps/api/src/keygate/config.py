@@ -4,6 +4,7 @@ Secrets are typed as ``SecretStr`` so they are masked in ``repr()`` and never en
 in logs or tracebacks by accident.
 """
 
+import base64
 from datetime import timedelta
 from functools import lru_cache
 from typing import Literal, Self
@@ -21,7 +22,10 @@ _KNOWN_DEV_PASSWORDS = frozenset(
 )
 MIN_PRODUCTION_PASSWORD_LENGTH = 16
 MIN_SECRET_KEY_LENGTH = 32
+AES_KEY_BYTES = 32
 DEV_SECRET_KEY = "dev-only-insecure-secret-key-do-not-use-in-production"  # noqa: S105 - rejected in prod
+# Derived from a public, obviously-fake string: usable in dev, rejected in production.
+DEV_ENCRYPTION_KEY = base64.b64encode(b"dev-only-insecure-encryption-key").decode()
 
 
 def _url_password(url: str) -> str:
@@ -53,6 +57,12 @@ class Settings(BaseSettings):
     # Server-side secret for HMACs (CSRF tokens, decoy credential IDs). Never sent to clients.
     secret_key: SecretStr = SecretStr(DEV_SECRET_KEY)
 
+    # AES-256-GCM keys for data encrypted at rest (TOTP secrets), by key ID. New data is
+    # encrypted with ``encryption_key_id``; old IDs stay listed so existing data can still
+    # be decrypted during a key rotation.
+    encryption_keys: dict[str, SecretStr] = {"dev": SecretStr(DEV_ENCRYPTION_KEY)}
+    encryption_key_id: str = "dev"
+
     # Public origin of the Keygate UI. Used to build links in emails.
     public_url: str = "http://localhost"
 
@@ -70,6 +80,11 @@ class Settings(BaseSettings):
     registration_session_minutes: int = Field(default=15, ge=1, le=60)
     # None = secure cookies in production only. Secure cookies get the __Host- prefix.
     cookie_secure: bool | None = None
+    # Sensitive actions need a sign-in or re-authentication at most this long ago.
+    step_up_ttl_minutes: int = Field(default=5, ge=1, le=30)
+
+    # --- MFA --------------------------------------------------------------------
+    totp_issuer: str = "Keygate"
 
     # --- Email ------------------------------------------------------------------
     magic_link_ttl_minutes: int = Field(default=15, ge=1, le=60)
@@ -104,12 +119,29 @@ class Settings(BaseSettings):
         return "__Host-kg_csrf" if self.secure_cookies else "kg_csrf"
 
     @property
+    def step_up_ttl(self) -> timedelta:
+        return timedelta(minutes=self.step_up_ttl_minutes)
+
+    @property
     def session_idle_timeout(self) -> timedelta:
         return timedelta(minutes=self.session_idle_timeout_minutes)
 
     @property
     def session_absolute_timeout(self) -> timedelta:
         return timedelta(hours=self.session_absolute_timeout_hours)
+
+    @model_validator(mode="after")
+    def _validate_encryption_keys(self) -> Self:
+        if self.encryption_key_id not in self.encryption_keys:
+            raise ValueError("KEYGATE_ENCRYPTION_KEY_ID must name a configured encryption key.")
+        for key_id, key in self.encryption_keys.items():
+            try:
+                raw = base64.b64decode(key.get_secret_value(), validate=True)
+            except ValueError as exc:
+                raise ValueError(f"Encryption key {key_id!r} is not valid base64.") from exc
+            if len(raw) != AES_KEY_BYTES:
+                raise ValueError(f"Encryption key {key_id!r} must decode to 32 bytes (AES-256).")
+        return self
 
     @model_validator(mode="after")
     def _refuse_weak_configuration_in_production(self) -> Self:
@@ -131,6 +163,8 @@ class Settings(BaseSettings):
             )
         if not self.secure_cookies:
             raise ValueError("Cookies must be Secure in production.")
+        if any(k.get_secret_value() == DEV_ENCRYPTION_KEY for k in self.encryption_keys.values()):
+            raise ValueError("The development encryption key must not be used in production.")
         insecure = [
             o for o in [self.public_url, *self.webauthn_origins] if urlsplit(o).scheme != "https"
         ]

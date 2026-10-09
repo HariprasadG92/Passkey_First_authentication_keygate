@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, type SessionInfo } from "@/lib/api";
 
 export function AuthNav() {
+  const pathname = usePathname();
   const [session, setSession] = useState<SessionInfo | null>(null);
 
+  // The layout (and this component) persists across client-side navigation, so re-check
+  // the session whenever the route changes (e.g. right after signing in or out).
   useEffect(() => {
     api<SessionInfo>("/auth/session").then(setSession, () => setSession(null));
-  }, []);
+  }, [pathname]);
 
   if (session?.authenticated) {
     return (

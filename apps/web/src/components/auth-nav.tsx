@@ -16,10 +16,23 @@ export function AuthNav() {
   }, [pathname]);
 
   if (session?.authenticated) {
+    const can = (p: string) => session.permissions.includes(p);
     return (
-      <Link href="/account" className="hover:text-foreground">
-        {session.user?.email}
-      </Link>
+      <div className="flex gap-4">
+        {can("users:read") && (
+          <Link href="/admin" className="hover:text-foreground">
+            Users
+          </Link>
+        )}
+        {can("audit:read") && (
+          <Link href="/admin/audit" className="hover:text-foreground">
+            Audit log
+          </Link>
+        )}
+        <Link href="/account" className="hover:text-foreground">
+          {session.user?.email}
+        </Link>
+      </div>
     );
   }
   return (

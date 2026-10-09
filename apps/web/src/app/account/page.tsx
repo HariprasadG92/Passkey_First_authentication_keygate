@@ -1,26 +1,29 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { KeyRound } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { EmailCard } from "@/components/account/email-card";
+import { PasskeysCard } from "@/components/account/passkeys-card";
+import { RecoveryCard } from "@/components/account/recovery-card";
+import { SessionsCard } from "@/components/account/sessions-card";
+import { TotpCard } from "@/components/account/totp-card";
 import { FormError } from "@/components/form-message";
+import { StepUpProvider } from "@/components/step-up";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, ApiError, type Account } from "@/lib/api";
-
-const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 export default function AccountPage() {
   const router = useRouter();
   const [account, setAccount] = useState<Account | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     api<Account>("/account").then(setAccount, (err: unknown) => {
       if (err instanceof ApiError && err.status === 401) router.replace("/signin");
       else setError((err as Error).message);
     });
   }, [router]);
+  useEffect(load, [load]);
 
   async function signOut() {
     await api("/auth/logout", { method: "POST" });
@@ -32,43 +35,25 @@ export default function AccountPage() {
   if (!account) return <p className="text-muted-foreground">Loading…</p>;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="account-heading">
-            Welcome, {account.user.display_name}
-          </h1>
-          <p className="text-sm text-muted-foreground">{account.user.email}</p>
+    <StepUpProvider totpEnabled={account.totp_enabled}>
+      <div className="mx-auto max-w-2xl space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold" data-testid="account-heading">
+              Welcome, {account.user.display_name}
+            </h1>
+            <p className="text-sm text-muted-foreground">{account.user.email}</p>
+          </div>
+          <Button variant="outline" onClick={signOut}>
+            Sign out
+          </Button>
         </div>
-        <Button variant="outline" onClick={signOut}>
-          Sign out
-        </Button>
+        <PasskeysCard passkeys={account.passkeys} onChange={load} />
+        <TotpCard enabled={account.totp_enabled} onChange={load} />
+        <RecoveryCard remaining={account.recovery_codes_remaining} onChange={load} />
+        <SessionsCard />
+        <EmailCard email={account.user.email} />
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Passkeys</CardTitle>
-          <CardDescription>Devices and password managers that can sign you in.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ul className="divide-y" data-testid="passkey-list">
-            {account.passkeys.map((p) => (
-              <li key={p.id} className="flex items-center gap-3 py-3">
-                <KeyRound className="size-5 text-muted-foreground" aria-hidden />
-                <div className="flex-1">
-                  <p className="font-medium">{p.friendly_name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Added {dateFormat.format(new Date(p.created_at))}
-                    {p.last_used_at &&
-                      ` · Last used ${dateFormat.format(new Date(p.last_used_at))}`}
-                    {p.backup_state && " · Synced"}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
-    </div>
+    </StepUpProvider>
   );
 }

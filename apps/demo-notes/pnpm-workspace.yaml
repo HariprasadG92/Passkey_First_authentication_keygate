@@ -2,3 +2,8 @@
 allowBuilds:
   # Ships prebuilt native binaries; its postinstall is only a fallback downloader.
   unrs-resolver: false
+
+# Security override for a vulnerable transitive dependency (pnpm audit). Remove once
+# upstream (Next.js) ships patched versions.
+overrides:
+  postcss: ">=8.5.23"

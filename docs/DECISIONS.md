@@ -34,6 +34,12 @@ what it costs. New decisions are appended; superseded ones are marked, never del
 | 027 | Server-side OAuth state with PKCE, nonce and a browser binding  | Accepted | 3     |
 | 028 | Account linking: match by subject, never merge, confirm explicitly | Accepted | 3   |
 | 029 | Social sign-up allowed; social counts as a sign-in method       | Accepted | 3     |
+| 030 | Permission-based RBAC, evaluated live on every request          | Accepted | 4     |
+| 031 | Admin guardrails: step-up, no self-change, never zero admins    | Accepted | 4     |
+| 032 | Granting a role forces a fresh sign-in                          | Accepted | 4     |
+| 033 | First admin only via an operator CLI                            | Accepted | 4     |
+| 034 | Audit log API: read-only, keyset-paginated, denials audited     | Accepted | 4     |
+| 035 | Rate-limit policy: one table, every limit tested                | Accepted | 4     |
 
 ---
 
@@ -462,3 +468,98 @@ current user.
 
 **Trade-offs.** A social-only account's security is the provider account's security. That's
 acceptable as an on-ramp, and the passkey nudge is prominent.
+
+---
+
+## ADR-030: Permission-based RBAC, evaluated live on every request
+
+**Decision.** Tables `roles`, `permissions`, `role_permissions` and `user_roles`, seeded by
+migration: `user` (no extra permissions), `auditor` (`audit:read`, `users:read`) and `admin`
+(all). Routes depend on **permissions** via `require_permission("users:read")`, never on role
+names. Permissions are resolved from the database on **every** request: nothing is cached in
+the session.
+
+**Context.** Checking role names in code couples every endpoint to today's role design.
+Permissions let roles be reshaped without touching endpoints. Live evaluation means revoking a
+role takes effect on the next request, with no stale "admin" claim living on in a session or
+token.
+
+**Alternatives.** Permissions embedded in a session or JWT (fast, but revocation waits for
+expiry); ABAC/policy engine (overkill for three roles; a natural evolution path).
+
+**Consequences.** One extra indexed query per admin request. The API is the only enforcement
+point: `GET /auth/session` returns `permissions` purely so the UI can hide links.
+
+## ADR-031: Admin guardrails: step-up, no self-change, never zero admins
+
+**Decision.**
+
+- Every admin mutation needs the permission *and* step-up re-authentication. The permission is
+  checked first, so non-admins get a plain 403.
+- Admins can't change their own roles or suspend themselves.
+- The last admin can't be demoted. Role changes take a lock on the `admin` role row, so two
+  admins demoting each other concurrently can't leave zero (there's a test for exactly this
+  race).
+- Admin actions are rate-limited per admin (60/min) and audited with actor, target and a
+  required reason for suspensions.
+- Suspension revokes every session of the user immediately. Suspended users are refused by
+  every sign-in path.
+
+## ADR-032: Granting a role forces a fresh sign-in
+
+**Decision.** When roles are **granted**, all of the target's sessions are revoked: elevated
+access always starts from a new sign-in with a new session ID. When roles are **revoked**, no
+session change is needed, since live evaluation (ADR-030) removes the access immediately.
+
+**Context.** This is the spec's "rotate the session ID on privilege change" applied to
+another user. A session that existed before the grant (possibly fixed, stolen or left open on
+a shared machine) must not silently become an admin session.
+
+## ADR-033: First admin only via an operator CLI
+
+**Decision.** `make admin email=...` runs `python -m keygate.cli grant-role` inside the API
+container. There is no web path to become an administrator when none exists (no "first user
+is admin", no setup wizard). CLI grants are audited with `via: cli` and severity high.
+
+**Context.** "First registered user becomes admin" is a classic takeover window on fresh
+deployments.
+
+## ADR-034: Audit log API: read-only, keyset-paginated, denials audited
+
+**Decision.** `GET /admin/audit` (`audit:read`) filters by event type, severity, result, actor or
+target user, and time range. It returns newest first with **keyset pagination** on
+`(occurred_at, id)`, which stays stable while new events arrive (offset pagination would skip
+or duplicate rows). There are no write endpoints (405), and the table itself is append-only
+(ADR-017). Every authorization denial writes an `authz.denied` event, so probing for admin
+endpoints is visible.
+
+## ADR-035: Rate-limit policy: one table, every limit tested
+
+**Decision.** All limits live in one table (`security/rate_limit.py`), keyed by IP (from the
+trusted proxy, ADR-003) and/or by account (normalised email before sign-in, user or session
+ID after). TOTP has one per-account budget shared by sign-in, step-up and enrolment. A test
+sweeps every endpoint past its limit, and a guard test fails if a limit is added without a test
+that exercises it.
+
+| Limit                          | Key      | Allowance        |
+| ------------------------------ | -------- | ---------------- |
+| Sign-up                        | IP       | 10 / hour        |
+| Sign-up                        | email    | 3 / 15 min       |
+| Email-link verification        | IP       | 20 / 15 min      |
+| Passkey sign-in options        | IP       | 30 / 5 min       |
+| Passkey sign-in verify         | IP       | 20 / 5 min       |
+| Passkey registration           | session  | 10 / 5 min       |
+| TOTP (all uses)                | account  | 5 / 15 min       |
+| TOTP sign-in                   | IP       | 20 / 15 min      |
+| Recovery-code sign-in          | IP       | 10 / 15 min      |
+| Recovery-code sign-in          | account  | 5 / hour         |
+| Step-up                        | session  | 10 / 5 min       |
+| Email change                   | account  | 3 / hour         |
+| Social sign-in start           | IP       | 30 / 5 min       |
+| Admin actions                  | admin    | 60 / min         |
+
+**Trade-offs.** Fixed windows allow a burst of up to 2× the limit at a window boundary.
+Acceptable here, since sliding windows cost more Redis work for little gain at these numbers.
+Per-account limits can be used to lock a victim out for a window (a deliberate,
+time-bounded trade-off). Passkey sign-in isn't limited per account: an assertion can't be
+brute-forced.

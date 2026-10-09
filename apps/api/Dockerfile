@@ -36,6 +36,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # ---------- dev: hot reload, dev tools, source bind-mounted by compose ----------
 FROM base AS dev
 COPY --from=uv /uv /usr/local/bin/uv
+ENV UV_CACHE_DIR=/tmp/uv-cache
 RUN mkdir -p /app/.venv && chown keygate:keygate /app /app/.venv
 USER keygate
 COPY --chown=keygate:keygate pyproject.toml uv.lock ./
@@ -46,6 +47,8 @@ CMD ["sh", "-c", "uv sync --frozen && exec uvicorn keygate.main:create_app --fac
 
 # ---------- runtime: minimal production image ----------
 FROM base AS runtime
+# X-Forwarded-For is only honoured from these addresses (set to the reverse proxy's IP).
+ENV FORWARDED_ALLOW_IPS=127.0.0.1
 COPY --from=builder --chown=keygate:keygate /app/.venv /app/.venv
 COPY --from=builder --chown=keygate:keygate /app/alembic.ini /app/alembic.ini
 COPY --from=builder --chown=keygate:keygate /app/src/keygate/db/migrations /app/src/keygate/db/migrations
@@ -54,4 +57,4 @@ USER keygate
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=3s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"]
-CMD ["uvicorn", "keygate.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1"]
+CMD ["uvicorn", "keygate.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--proxy-headers"]

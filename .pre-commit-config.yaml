@@ -1,0 +1,68 @@
+# Install with `make install` (or `pre-commit install`). Run on everything: `pre-commit run -a`.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        exclude: ^apps/web/tsconfig\.json$ # JSONC (comments allowed)
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: [--branch, main]
+
+  # Secrets: scan staged changes on commit, and the whole history again before push.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+      - id: gitleaks
+        name: Detect hardcoded secrets (full history)
+        entry: gitleaks git --redact --no-banner
+        stages: [pre-push]
+
+  # --- API (Python) ---
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.10
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+        files: ^apps/api/
+      - id: ruff-format
+        files: ^apps/api/
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (strict, api)
+        entry: uv run --directory apps/api mypy
+        language: system
+        files: ^apps/api/.*\.py$
+        pass_filenames: false
+
+      # --- Web (TypeScript) ---
+      - id: prettier
+        name: prettier (web)
+        entry: bash -c 'cd apps/web && pnpm exec prettier --write --ignore-unknown "${@#apps/web/}"' --
+        language: system
+        files: ^apps/web/
+        exclude: ^apps/web/pnpm-lock\.yaml$
+      - id: eslint
+        name: eslint (web)
+        entry: bash -c 'cd apps/web && pnpm exec eslint --max-warnings=0 --fix "${@#apps/web/}"' --
+        language: system
+        files: ^apps/web/.*\.(ts|tsx|js|mjs)$
+      - id: tsc
+        name: tsc (web)
+        entry: bash -c 'cd apps/web && pnpm exec tsc --noEmit'
+        language: system
+        files: ^apps/web/.*\.(ts|tsx)$
+        pass_filenames: false

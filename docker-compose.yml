@@ -1,0 +1,136 @@
+# Local development stack. Usage: `make dev` (or `docker compose up --build`).
+#
+#   http://localhost         Keygate UI (Next.js)        via gateway
+#   http://localhost/api     Keygate API (FastAPI)       via gateway
+#   http://localhost:8025    Mailpit (captured emails)
+#
+# Only the gateway and Mailpit UI are exposed for browsing; Postgres and Redis are
+# published on 127.0.0.1 only, so host-run tests can reach them but the LAN cannot.
+
+name: keygate
+
+x-api-env: &api-env
+  KEYGATE_ENVIRONMENT: ${KEYGATE_ENVIRONMENT:-development}
+  KEYGATE_LOG_LEVEL: ${KEYGATE_LOG_LEVEL:-INFO}
+  KEYGATE_LOG_JSON: ${KEYGATE_LOG_JSON:-false}
+  KEYGATE_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-keygate}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-keygate}
+  KEYGATE_REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+
+services:
+  gateway:
+    image: caddy:2.11.7-alpine
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-80}:80"
+    volumes:
+      - ./infra/gateway/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    networks:
+      default:
+        ipv4_address: 172.30.42.10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./apps/api
+      target: dev
+    environment:
+      <<: *api-env
+      # Served behind the gateway at /api; only trust X-Forwarded-For from the gateway.
+      UVICORN_ROOT_PATH: /api
+      FORWARDED_ALLOW_IPS: 172.30.42.10
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/alembic.ini:/app/alembic.ini:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      target: dev
+    environment:
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./apps/web:/app
+      # Keep the container's own node_modules and build cache, not the host's.
+      - /app/node_modules
+      - /app/.next
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-keygate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-keygate}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.8.3-alpine
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+      # redis-cli reads the password from here, keeping it out of `ps` output.
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.42.0/24
+
+volumes:
+  pgdata:
+  redisdata:

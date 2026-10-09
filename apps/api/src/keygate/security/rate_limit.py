@@ -77,4 +77,5 @@ LIMITS: dict[str, Limit] = {
     "recovery:user": Limit(5, 3600),
     "step_up:session": Limit(10, 300),
     "email_change:user": Limit(3, 3600),
+    "social_start:ip": Limit(30, 300),
 }

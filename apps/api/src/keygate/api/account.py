@@ -9,7 +9,7 @@ import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Response, status
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +27,7 @@ from keygate.api.deps import (
 from keygate.audit.models import AuditResult, Severity
 from keygate.auth.accounts import get_user_by_email, normalize_email
 from keygate.auth.email import OutgoingEmail
+from keygate.auth.methods import count_sign_in_methods, last_method_error, lock_user
 from keygate.auth.models import EmailToken, EmailTokenPurpose, User, WebAuthnCredential
 from keygate.auth.notifications import security_notice
 from keygate.auth.passkeys import PasskeyError, PasskeyService
@@ -35,6 +36,7 @@ from keygate.auth.schemas import (
     AddPasskeyRequest,
     EmailChangeRequest,
     EmailVerifyRequest,
+    LinkedSocialOut,
     PasskeyOut,
     PasskeyRename,
     RecoveryCodesOut,
@@ -54,6 +56,7 @@ from keygate.mfa.totp import TotpError, TotpService
 from keygate.security.crypto import Encryptor
 from keygate.security.rate_limit import LIMITS
 from keygate.security.tokens import generate_token, hash_token
+from keygate.social.models import SocialAccount
 
 router = APIRouter(prefix="/account", tags=["account"])
 
@@ -83,31 +86,6 @@ def _totp(settings: Settings) -> TotpService:
     return TotpService(settings, Encryptor.from_settings(settings))
 
 
-async def _lock_user(db: AsyncSession, user_id: uuid.UUID) -> User:
-    """Row-lock the user so concurrent changes to sign-in methods are serialised."""
-    return (await db.execute(select(User).where(User.id == user_id).with_for_update())).scalar_one()
-
-
-async def _sign_in_methods(db: AsyncSession, settings: Settings, user_id: uuid.UUID) -> int:
-    passkeys = (
-        await db.execute(
-            select(func.count())
-            .select_from(WebAuthnCredential)
-            .where(WebAuthnCredential.user_id == user_id)
-        )
-    ).scalar_one()
-    return passkeys + (1 if await _totp(settings).is_enabled(db, user_id) else 0)
-
-
-def last_method_error() -> KeygateError:
-    return KeygateError(
-        status.HTTP_409_CONFLICT,
-        "last_sign_in_method",
-        "You can't remove your only way to sign in. "
-        "Add another passkey or an authenticator app first.",
-    )
-
-
 def _notify(
     background: BackgroundTasks,
     mailer: MailerDep,
@@ -133,9 +111,22 @@ async def get_account(ctx: FullSession, db: DB, settings: SettingsDep) -> Securi
         )
     ).scalars()
     reauth = ctx.session.reauthenticated_at
+    social = (
+        await db.execute(
+            select(SocialAccount)
+            .where(SocialAccount.user_id == ctx.user.id)
+            .order_by(SocialAccount.created_at)
+        )
+    ).scalars()
     return SecurityOverview(
         user=_user_out(ctx.user),
         passkeys=[_passkey_out(c) for c in creds],
+        social_accounts=[
+            LinkedSocialOut(
+                id=a.id, provider=a.provider, email=a.email, display_name=a.display_name
+            )
+            for a in social
+        ],
         totp_enabled=await _totp(settings).is_enabled(db, ctx.user.id),
         recovery_codes_remaining=await recovery.remaining(db, ctx.user.id),
         step_up_valid_until=reauth + settings.step_up_ttl if reauth else None,
@@ -182,9 +173,9 @@ async def delete_passkey(
     client: Client,
 ) -> None:
     user_id, email = ctx.user.id, ctx.user.email
-    await _lock_user(db, user_id)
+    await lock_user(db, user_id)
     row = await _owned_passkey(db, user_id, passkey_id)
-    if await _sign_in_methods(db, settings, user_id) <= 1:
+    if await count_sign_in_methods(db, user_id) <= 1:
         raise last_method_error()
     await db.delete(row)
     await db.commit()
@@ -316,11 +307,11 @@ async def totp_disable(
     client: Client,
 ) -> None:
     user_id, email = ctx.user.id, ctx.user.email
-    await _lock_user(db, user_id)
+    await lock_user(db, user_id)
     service = _totp(settings)
     if not await service.is_enabled(db, user_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No authenticator app is set up.")
-    if await _sign_in_methods(db, settings, user_id) <= 1:
+    if await count_sign_in_methods(db, user_id) <= 1:
         raise last_method_error()
     await service.disable(db, user_id)
     await db.commit()
@@ -528,7 +519,7 @@ async def confirm_email_change(
         )
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This link is invalid or has expired.")
 
-    user = await _lock_user(db, user_id)
+    user = await lock_user(db, user_id)
     user.email = row[0]
     user.email_verified = True
     try:

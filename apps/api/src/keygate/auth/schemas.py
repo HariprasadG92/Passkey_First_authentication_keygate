@@ -178,9 +178,17 @@ class EmailChangeRequest(_Strict):
     new_email: EmailStr = Field(max_length=320)
 
 
+class LinkedSocialOut(BaseModel):
+    id: uuid.UUID
+    provider: str
+    email: str | None
+    display_name: str | None
+
+
 class SecurityOverview(BaseModel):
     user: UserOut
     passkeys: list[PasskeyOut]
+    social_accounts: list[LinkedSocialOut]
     totp_enabled: bool
     recovery_codes_remaining: int
     step_up_valid_until: datetime | None

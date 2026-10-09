@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { MailCheck } from "lucide-react";
 import { FormError } from "@/components/form-message";
+import { SocialButtons } from "@/components/social-buttons";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -72,6 +73,7 @@ export default function SignUpPage() {
             <Button type="submit" className="w-full" disabled={busy}>
               {busy ? "Sending…" : "Send confirmation link"}
             </Button>
+            <SocialButtons onError={setError} />
             <p className="text-center text-sm text-muted-foreground">
               Already have an account?{" "}
               <Link href="/signin" className="underline">

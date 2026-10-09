@@ -3,11 +3,12 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import Depends, FastAPI
 from redis.asyncio import Redis
 
 from keygate import __version__
-from keygate.api import account, auth, health
+from keygate.api import account, auth, health, social
 from keygate.audit.service import AuditLog
 from keygate.auth.email import Mailer, SMTPMailer
 from keygate.auth.sessions import SessionManager
@@ -34,10 +35,15 @@ def create_app(settings: Settings | None = None, *, mailer: Mailer | None = None
         app.state.sessionmaker = sessionmaker
         app.state.redis = redis
         app.state.audit = AuditLog(sessionmaker)
+        # One shared client for outbound calls (OAuth providers): connection pooling,
+        # no redirects followed implicitly.
+        http = httpx.AsyncClient(follow_redirects=False)
+        app.state.http = http
         log.info("startup", environment=settings.environment, version=__version__)
         try:
             yield
         finally:
+            await http.aclose()
             await redis.aclose()
             await engine.dispose()
             log.info("shutdown")
@@ -63,4 +69,5 @@ def create_app(settings: Settings | None = None, *, mailer: Mailer | None = None
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(account.router)
+    app.include_router(social.router)
     return app

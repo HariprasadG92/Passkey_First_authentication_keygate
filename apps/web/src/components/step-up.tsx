@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, isStepUpRequired } from "@/lib/api";
 import { describePasskeyError, stepUpWithPasskey } from "@/lib/passkeys";
+import { startSocial } from "@/lib/social";
 import { totpCodeSchema } from "@/lib/validation";
 
 type RunWithStepUp = <T>(action: () => Promise<T>) => Promise<T>;
@@ -28,9 +29,12 @@ const StepUpContext = createContext<RunWithStepUp | null>(null);
  */
 export function StepUpProvider({
   totpEnabled,
+  socialProviders = [],
   children,
 }: {
   totpEnabled: boolean;
+  /** Linked providers that can confirm identity (leaves the page; the user retries after). */
+  socialProviders?: { id: string; name: string }[];
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -99,6 +103,22 @@ export function StepUpProvider({
           >
             Use a passkey
           </Button>
+          {socialProviders.map((p) => (
+            <Button
+              key={p.id}
+              variant="outline"
+              className="w-full"
+              disabled={busy}
+              onClick={() =>
+                finish(
+                  () => startSocial(p.id, "stepup"),
+                  (e) => (e as Error).message,
+                )
+              }
+            >
+              Continue with {p.name}
+            </Button>
+          ))}
           {totpEnabled && (
             <form
               className="space-y-2"

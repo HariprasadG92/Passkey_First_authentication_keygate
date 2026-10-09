@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     # --- MFA --------------------------------------------------------------------
     totp_issuer: str = "Keygate"
 
+    # --- Social login (a provider is enabled only when both values are set) -----
+    github_client_id: str | None = None
+    github_client_secret: SecretStr | None = None
+    google_client_id: str | None = None
+    google_client_secret: SecretStr | None = None
+    social_flow_ttl_seconds: int = Field(default=600, ge=60, le=1800)
+
     # --- Email ------------------------------------------------------------------
     magic_link_ttl_minutes: int = Field(default=15, ge=1, le=60)
     smtp_host: str = "localhost"
@@ -117,6 +124,10 @@ class Settings(BaseSettings):
     @property
     def csrf_cookie_name(self) -> str:
         return "__Host-kg_csrf" if self.secure_cookies else "kg_csrf"
+
+    @property
+    def oauth_cookie_name(self) -> str:
+        return "__Host-kg_oauth" if self.secure_cookies else "kg_oauth"
 
     @property
     def step_up_ttl(self) -> timedelta:

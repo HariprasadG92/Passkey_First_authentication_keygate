@@ -4,6 +4,7 @@ Secrets are typed as ``SecretStr`` so they are masked in ``repr()`` and never en
 in logs or tracebacks by accident.
 """
 
+from datetime import timedelta
 from functools import lru_cache
 from typing import Literal, Self
 from urllib.parse import urlsplit
@@ -19,6 +20,8 @@ _KNOWN_DEV_PASSWORDS = frozenset(
     {"", "keygate", "keygate-dev-only", "postgres", "password", "change-me", "changeme"}
 )
 MIN_PRODUCTION_PASSWORD_LENGTH = 16
+MIN_SECRET_KEY_LENGTH = 32
+DEV_SECRET_KEY = "dev-only-insecure-secret-key-do-not-use-in-production"  # noqa: S105 - rejected in prod
 
 
 def _url_password(url: str) -> str:
@@ -47,6 +50,36 @@ class Settings(BaseSettings):
     )
     redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
 
+    # Server-side secret for HMACs (CSRF tokens, decoy credential IDs). Never sent to clients.
+    secret_key: SecretStr = SecretStr(DEV_SECRET_KEY)
+
+    # Public origin of the Keygate UI. Used to build links in emails.
+    public_url: str = "http://localhost"
+
+    # --- WebAuthn ---------------------------------------------------------------
+    # The RP ID is the registrable domain credentials are scoped to; origins are the
+    # exact page origins allowed to run ceremonies (scheme + host + port).
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "Keygate"
+    webauthn_origins: list[str] = ["http://localhost"]
+    webauthn_challenge_ttl_seconds: int = Field(default=300, ge=30, le=600)
+
+    # --- Sessions ---------------------------------------------------------------
+    session_idle_timeout_minutes: int = Field(default=30, ge=1)
+    session_absolute_timeout_hours: int = Field(default=12, ge=1)
+    registration_session_minutes: int = Field(default=15, ge=1, le=60)
+    # None = secure cookies in production only. Secure cookies get the __Host- prefix.
+    cookie_secure: bool | None = None
+
+    # --- Email ------------------------------------------------------------------
+    magic_link_ttl_minutes: int = Field(default=15, ge=1, le=60)
+    smtp_host: str = "localhost"
+    smtp_port: int = 1025
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_starttls: bool = False
+    smtp_from: str = "Keygate <no-reply@keygate.localhost>"
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
@@ -56,9 +89,31 @@ class Settings(BaseSettings):
         """Interactive API docs are a development aid; they widen the attack surface in prod."""
         return not self.is_production
 
+    @property
+    def secure_cookies(self) -> bool:
+        return self.is_production if self.cookie_secure is None else self.cookie_secure
+
+    @property
+    def session_cookie_name(self) -> str:
+        # __Host- forces Secure, Path=/ and no Domain: the cookie can't be set or
+        # overwritten by a sibling subdomain.
+        return "__Host-kg_session" if self.secure_cookies else "kg_session"
+
+    @property
+    def csrf_cookie_name(self) -> str:
+        return "__Host-kg_csrf" if self.secure_cookies else "kg_csrf"
+
+    @property
+    def session_idle_timeout(self) -> timedelta:
+        return timedelta(minutes=self.session_idle_timeout_minutes)
+
+    @property
+    def session_absolute_timeout(self) -> timedelta:
+        return timedelta(hours=self.session_absolute_timeout_hours)
+
     @model_validator(mode="after")
-    def _refuse_weak_credentials_in_production(self) -> Self:
-        """Fail closed: a production deploy with copied dev credentials must not start."""
+    def _refuse_weak_configuration_in_production(self) -> Self:
+        """Fail closed: a production deploy with copied dev settings must not start."""
         if not self.is_production:
             return self
         for name, url in (("database", self.database_url), ("redis", self.redis_url)):
@@ -68,6 +123,19 @@ class Settings(BaseSettings):
                     f"Weak or development {name} credentials must not be used in production "
                     f"(use a unique password of at least {MIN_PRODUCTION_PASSWORD_LENGTH} chars)."
                 )
+        secret = self.secret_key.get_secret_value()
+        if secret == DEV_SECRET_KEY or len(secret) < MIN_SECRET_KEY_LENGTH:
+            raise ValueError(
+                f"KEYGATE_SECRET_KEY must be a unique random value of at least "
+                f"{MIN_SECRET_KEY_LENGTH} chars in production."
+            )
+        if not self.secure_cookies:
+            raise ValueError("Cookies must be Secure in production.")
+        insecure = [
+            o for o in [self.public_url, *self.webauthn_origins] if urlsplit(o).scheme != "https"
+        ]
+        if insecure:
+            raise ValueError(f"Production origins must use https: {insecure}")
         return self
 
 

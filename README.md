@@ -11,7 +11,7 @@
 | 1     | Accounts, passkeys, sessions                | ✅ Done        |
 | 2     | Credential management, MFA, recovery        | ✅ Done        |
 | 3     | Social login (GitHub, Google)               | ✅ Done        |
-| 4     | RBAC, admin dashboard, audit log            | ⏳ Planned     |
+| 4     | RBAC, admin dashboard, audit log            | ✅ Done        |
 | 5     | Keygate as an OIDC provider + demo app      | ⏳ Planned     |
 | 6     | Hardening, CI, documentation                | ⏳ Planned     |
 
@@ -42,6 +42,23 @@ same origin (e.g. `http://localhost:8080`): WebAuthn checks the exact origin.
 4. Sign out, then **Sign in with a passkey**: no username needed.
 5. On the account page: add more passkeys, set up an authenticator app, generate recovery
    codes, review and revoke sessions. Sensitive changes ask you to re-confirm with your passkey.
+
+## Roles and administration
+
+| Role      | Can                                                                  |
+| --------- | -------------------------------------------------------------------- |
+| `user`    | Manage their own account (every account has this)                    |
+| `auditor` | Read the audit log and the user directory                            |
+| `admin`   | Everything: search users, suspend/unsuspend, assign roles, revoke sessions, read the audit log |
+
+Make yourself the first admin (there's deliberately no web path to do this):
+
+```bash
+make admin email=you@example.com      # or: make auditor email=...
+```
+
+Then **Users** and **Audit log** appear in the header. Admin actions ask you to re-confirm
+with your passkey and are recorded in the audit log.
 
 ## Social login setup (optional)
 

@@ -13,6 +13,9 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   timeout: 60_000,
+  // The dev stack runs `next dev`, which compiles each route on its first request; give
+  // assertions room for that (especially right after `make test-web` loads the machine).
+  expect: { timeout: 15_000 },
   use: {
     baseURL: process.env.KEYGATE_E2E_URL ?? "http://localhost",
     trace: "retain-on-failure",

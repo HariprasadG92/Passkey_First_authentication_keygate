@@ -116,6 +116,7 @@ class SessionOut(BaseModel):
     level: Literal["registration", "full"] | None = None
     user: UserOut | None = None
     csrf_token: str
+    permissions: list[str] = Field(default_factory=list)
 
 
 # ------------------------------------------------------------------ Phase 2: MFA etc.

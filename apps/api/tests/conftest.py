@@ -11,7 +11,8 @@ containers) but never touch development data:
 import asyncio
 import os
 import re
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AsyncExitStack
 from pathlib import Path
 
 import asyncpg
@@ -48,8 +49,9 @@ TABLES = [
     "totp_credentials",
     "recovery_codes",
     "social_accounts",
+    "user_roles",
     "users",
-]
+]  # roles/permissions are seed data from migrations: never truncated
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -216,6 +218,28 @@ async def second_client(
         _attach_csrf(other)
         await other.get("/auth/session")
         yield other
+
+
+@pytest.fixture
+async def client_factory(
+    app: FastAPI, client: httpx.AsyncClient
+) -> AsyncIterator[Callable[[], Awaitable[httpx.AsyncClient]]]:
+    """Make any number of extra browsers sharing the app's lifespan (via ``client``)."""
+    stack = AsyncExitStack()
+
+    async def make() -> httpx.AsyncClient:
+        other = await stack.enter_async_context(
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+                base_url=ORIGIN,
+            )
+        )
+        _attach_csrf(other)
+        await other.get("/auth/session")
+        return other
+
+    async with stack:
+        yield make
 
 
 @pytest.fixture

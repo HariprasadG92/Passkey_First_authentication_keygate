@@ -8,6 +8,11 @@ const compat = new FlatCompat({ baseDirectory: __dirname });
 
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    // Playwright fixtures call a parameter named `use`, which isn't a React hook.
+    files: ["e2e/**"],
+    rules: { "react-hooks/rules-of-hooks": "off" },
+  },
   prettier, // last: turns off stylistic rules that conflict with Prettier
   {
     ignores: [

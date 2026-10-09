@@ -1,0 +1,24 @@
+# Local gateway: one origin (http://localhost) for the UI and the API.
+#
+# WebAuthn binds credentials to the page origin and session cookies work best
+# same-origin, so the browser should never talk to two hosts. /api/* is routed to
+# FastAPI (prefix stripped) and everything else to Next.js.
+{
+	admin off
+	auto_https off
+}
+
+:80 {
+	encode zstd gzip
+	header -Server
+
+	handle_path /api/* {
+		# Caddy ignores client-supplied X-Forwarded-For (no trusted_proxies set) and
+		# sets it from the real peer address, so the API sees the true client IP.
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

@@ -1,0 +1,15 @@
+# Gitleaks configuration: the built-in rules, plus paths that never hold our secrets.
+title = "keygate"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Third-party dependencies and build output (not committed)"
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)\.next/''',
+  '''(^|/)\.(mypy|ruff|pytest)_cache/''',
+  '''(^|/)(playwright-report|test-results)/''',
+]

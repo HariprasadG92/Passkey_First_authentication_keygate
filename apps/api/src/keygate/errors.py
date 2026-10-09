@@ -15,6 +15,16 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
+class KeygateError(Exception):
+    """An expected error with a stable machine-readable ``code`` for clients."""
+
+    def __init__(self, status_code: int, code: str, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.message = message
+
+
 def error_response(
     status_code: int,
     code: str,
@@ -56,6 +66,12 @@ async def _validation_exception_handler(_: Request, exc: Exception) -> JSONRespo
     return error_response(422, "validation_error", "Request validation failed.", details)
 
 
+async def _keygate_error_handler(_: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, KeygateError)  # noqa: S101 - narrowing for mypy
+    return error_response(exc.status_code, exc.code, exc.message)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(KeygateError, _keygate_error_handler)
     app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
     app.add_exception_handler(RequestValidationError, _validation_exception_handler)

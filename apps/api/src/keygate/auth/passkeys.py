@@ -253,11 +253,60 @@ class PasskeyService:
         await self._store_challenge(self._authentication_key(ceremony_id), challenge)
         return ceremony_id, options_to_json_dict(options)
 
+    async def step_up_options(
+        self, db: AsyncSession, user: User, session: Session
+    ) -> dict[str, Any]:
+        """Assertion options limited to the signed-in user's own passkeys, with the
+        challenge bound to their session."""
+        creds = (
+            await db.execute(
+                select(WebAuthnCredential).where(WebAuthnCredential.user_id == user.id)
+            )
+        ).scalars()
+        challenge = secrets.token_bytes(CHALLENGE_BYTES)
+        options = generate_authentication_options(
+            rp_id=self._settings.webauthn_rp_id,
+            challenge=challenge,
+            timeout=self._timeout_ms,
+            allow_credentials=[
+                PublicKeyCredentialDescriptor(
+                    id=c.credential_id, transports=_transports(c.transports)
+                )
+                for c in creds
+            ],
+            user_verification=UserVerificationRequirement.REQUIRED,
+        )
+        await self._store_challenge(self._step_up_key(session), challenge)
+        return options_to_json_dict(options)
+
+    @staticmethod
+    def _step_up_key(session: Session) -> str:
+        return f"webauthn:stepup:{session.id}"
+
     async def verify_authentication(
         self, db: AsyncSession, ceremony_id: str, credential: AuthenticationCredentialJSON
     ) -> AuthenticatedPasskey:
         challenge = await self._take_challenge(self._authentication_key(ceremony_id))
+        return await self._verify_assertion(db, challenge, credential)
 
+    async def verify_step_up(
+        self,
+        db: AsyncSession,
+        user: User,
+        session: Session,
+        credential: AuthenticationCredentialJSON,
+    ) -> AuthenticatedPasskey:
+        challenge = await self._take_challenge(self._step_up_key(session))
+        return await self._verify_assertion(db, challenge, credential, expected_user_id=user.id)
+
+    async def _verify_assertion(
+        self,
+        db: AsyncSession,
+        challenge: bytes,
+        credential: AuthenticationCredentialJSON,
+        *,
+        expected_user_id: uuid.UUID | None = None,
+    ) -> AuthenticatedPasskey:
         try:
             raw_id = base64url_to_bytes(credential.rawId)
         except ValueError as exc:
@@ -273,6 +322,9 @@ class PasskeyService:
         if stored is None:
             raise PasskeyError("unknown_credential")
         user = stored.user
+        if expected_user_id is not None and user.id != expected_user_id:
+            # Step-up must be done with one of *your* passkeys.
+            raise PasskeyError("credential_owner_mismatch", user_id=expected_user_id)
 
         # For discoverable credentials the authenticator returns the user handle it was
         # registered with; it must belong to the credential's owner.

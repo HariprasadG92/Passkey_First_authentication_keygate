@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Fingerprint } from "lucide-react";
+import { CodeSignIn } from "@/components/code-sign-in";
 import { FormError } from "@/components/form-message";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +18,7 @@ export default function SignInPage() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [alt, setAlt] = useState<"totp" | "recovery" | null>(null);
 
   async function run(withEmail?: string) {
     setBusy(true);
@@ -76,6 +78,28 @@ export default function SignInPage() {
         </form>
 
         <FormError message={error} />
+
+        <div className="space-y-3 border-t pt-4">
+          <p className="text-sm text-muted-foreground">Can&apos;t use a passkey right now?</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={alt === "totp" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setAlt(alt === "totp" ? null : "totp")}
+            >
+              Use authenticator app
+            </Button>
+            <Button
+              variant={alt === "recovery" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setAlt(alt === "recovery" ? null : "recovery")}
+            >
+              Use a recovery code
+            </Button>
+          </div>
+          {alt && <CodeSignIn key={alt} mode={alt} />}
+        </div>
+
         <p className="text-center text-sm text-muted-foreground">
           New here?{" "}
           <Link href="/signup" className="underline">

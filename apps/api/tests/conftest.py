@@ -47,6 +47,7 @@ TABLES = [
     "webauthn_credentials",
     "totp_credentials",
     "recovery_codes",
+    "social_accounts",
     "users",
 ]
 
@@ -66,6 +67,10 @@ def make_settings(**overrides: object) -> Settings:
         "public_url": ORIGIN,
         "webauthn_rp_id": "localhost",
         "webauthn_origins": [ORIGIN],
+        "github_client_id": "gh-client",
+        "github_client_secret": "gh-secret",
+        "google_client_id": "google-client.apps.googleusercontent.com",
+        "google_client_secret": "google-secret",
     }
     values.update(overrides)
     return Settings(**values)  # type: ignore[arg-type]

@@ -26,7 +26,7 @@ const COPY: Record<Mode, { label: string; endpoint: string; button: string; hint
   },
 };
 
-export function CodeSignIn({ mode }: { mode: Mode }) {
+export function CodeSignIn({ mode, onSuccess }: { mode: Mode; onSuccess?: () => void }) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -53,7 +53,8 @@ export function CodeSignIn({ mode }: { mode: Mode }) {
         method: "POST",
         body: { email: parsedEmail.data, code: parsedCode.data },
       });
-      router.push("/account");
+      if (onSuccess) onSuccess();
+      else router.push("/account");
     } catch (err) {
       setError((err as Error).message);
     } finally {

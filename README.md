@@ -10,7 +10,7 @@
 | 0     | Foundation: stack, tooling, git hooks       | ✅ Done        |
 | 1     | Accounts, passkeys, sessions                | ✅ Done        |
 | 2     | Credential management, MFA, recovery        | ✅ Done        |
-| 3     | Social login (GitHub, Google)               | ⏳ Planned     |
+| 3     | Social login (GitHub, Google)               | ✅ Done        |
 | 4     | RBAC, admin dashboard, audit log            | ⏳ Planned     |
 | 5     | Keygate as an OIDC provider + demo app      | ⏳ Planned     |
 | 6     | Hardening, CI, documentation                | ⏳ Planned     |
@@ -42,6 +42,55 @@ same origin (e.g. `http://localhost:8080`): WebAuthn checks the exact origin.
 4. Sign out, then **Sign in with a passkey**: no username needed.
 5. On the account page: add more passkeys, set up an authenticator app, generate recovery
    codes, review and revoke sessions. Sensitive changes ask you to re-confirm with your passkey.
+
+## Social login setup (optional)
+
+Keygate runs fine without social login; the buttons only appear once a provider is configured.
+Put the values in `.env`, then run `docker compose up -d api` to apply them.
+
+### GitHub
+
+1. Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**
+   (<https://github.com/settings/applications/new>).
+2. Fill in:
+   - **Application name**: `Keygate (local)`
+   - **Homepage URL**: `http://localhost`
+   - **Authorization callback URL**: `http://localhost/api/auth/social/github/callback`
+3. Click **Register application**, then **Generate a new client secret**.
+4. Add to `.env`:
+   ```bash
+   KEYGATE_GITHUB_CLIENT_ID=<Client ID>
+   KEYGATE_GITHUB_CLIENT_SECRET=<Client secret>
+   ```
+
+Keygate asks for `read:user user:email` and only trusts your **primary, verified** GitHub email.
+
+### Google
+
+1. Open the Google Cloud console (<https://console.cloud.google.com/>) and create or select a
+   project.
+2. **APIs & Services → OAuth consent screen**: choose **External**, fill in the app name and
+   your email, add the scopes `openid`, `email` and `profile`, and add yourself as a **test
+   user** (while the app is in "Testing").
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - **Application type**: Web application
+   - **Authorized JavaScript origins**: `http://localhost`
+   - **Authorized redirect URIs**: `http://localhost/api/auth/social/google/callback`
+4. Add to `.env`:
+   ```bash
+   KEYGATE_GOOGLE_CLIENT_ID=<...>.apps.googleusercontent.com
+   KEYGATE_GOOGLE_CLIENT_SECRET=<Client secret>
+   ```
+
+If you changed `KEYGATE_PUBLIC_URL` (e.g. a different port), use that origin in the callback
+URLs instead. Providers require an **exact** match.
+
+### How linking works
+
+- **New email**: "Continue with GitHub/Google" creates an account. Add a passkey right after.
+- **Email already belongs to a Keygate account**: sign-in is refused. Accounts are never
+  merged silently. Sign in with your passkey, then use **Link GitHub/Google** on the account
+  page (you'll confirm the specific identity before it's linked).
 
 ## Development
 

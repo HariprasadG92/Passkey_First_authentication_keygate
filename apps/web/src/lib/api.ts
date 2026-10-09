@@ -81,9 +81,17 @@ export type Passkey = {
   transports: string[];
 };
 
+export type LinkedSocial = {
+  id: string;
+  provider: string;
+  email: string | null;
+  display_name: string | null;
+};
+
 export type Account = {
   user: User;
   passkeys: Passkey[];
+  social_accounts: LinkedSocial[];
   totp_enabled: boolean;
   recovery_codes_remaining: number;
   step_up_valid_until: string | null;

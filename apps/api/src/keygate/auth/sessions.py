@@ -7,6 +7,7 @@
   creation), whichever comes first.
 """
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -53,8 +54,13 @@ class SessionManager:
         auth_method: str,
         client: ClientInfo,
         replaces_token: str | None = None,
+        reauthenticated: bool = True,
     ) -> NewSession:
-        """Start a new session (rotating out ``replaces_token``) and set the cookies."""
+        """Start a new session (rotating out ``replaces_token``) and set the cookies.
+
+        ``reauthenticated`` marks that the user just proved a sign-in factor (passkey,
+        TOTP, recovery code), which satisfies step-up for a few minutes. Email-only
+        registration sessions pass False."""
         if replaces_token:
             await self.revoke_token(db, replaces_token)
 
@@ -75,6 +81,7 @@ class SessionManager:
                 user_agent=client.user_agent,
                 last_seen_at=now,
                 expires_at=now + lifetime,
+                reauthenticated_at=now if reauthenticated else None,
             )
         )
         self._set_cookie(response, token, lifetime)
@@ -108,6 +115,35 @@ class SessionManager:
         return (
             now >= row.expires_at or now - row.last_seen_at >= self._settings.session_idle_timeout
         )
+
+    async def list_active(self, db: AsyncSession, user_id: uuid.UUID) -> list[Session]:
+        now = utcnow()
+        rows = (
+            await db.execute(
+                select(Session)
+                .where(Session.user_id == user_id, Session.revoked_at.is_(None))
+                .order_by(Session.last_seen_at.desc())
+            )
+        ).scalars()
+        return [r for r in rows if not self._is_expired(r, now)]
+
+    async def revoke_for_user(
+        self,
+        db: AsyncSession,
+        user_id: uuid.UUID,
+        *,
+        session_id: uuid.UUID | None = None,
+        except_session_id: uuid.UUID | None = None,
+    ) -> int:
+        """Revoke one or all of a user's sessions. Always scoped by ``user_id`` so one user
+        can never revoke (or probe for) another user's sessions."""
+        stmt = update(Session).where(Session.user_id == user_id, Session.revoked_at.is_(None))
+        if session_id is not None:
+            stmt = stmt.where(Session.id == session_id)
+        if except_session_id is not None:
+            stmt = stmt.where(Session.id != except_session_id)
+        result = await db.execute(stmt.values(revoked_at=utcnow()))
+        return int(result.rowcount)  # type: ignore[attr-defined]
 
     async def revoke_token(self, db: AsyncSession, token: str) -> None:
         await db.execute(

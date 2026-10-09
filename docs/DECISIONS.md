@@ -23,6 +23,13 @@ what it costs. New decisions are appended; superseded ones are marked, never del
 | 016 | Non-`Secure`, unprefixed cookies on `http://localhost` in dev   | Accepted | 1     |
 | 017 | Audit events in their own transaction, append-only in the DB    | Accepted | 1     |
 | 018 | No test-only bypasses in the API                                | Accepted | 1     |
+| 019 | Step-up re-authentication ("sudo mode")                         | Accepted | 2     |
+| 020 | TOTP as an encrypted, replay-protected, phishable fallback      | Accepted | 2     |
+| 021 | Recovery codes: Argon2id, single-use, a recovery not a method   | Accepted | 2     |
+| 022 | Last-sign-in-method protection under a row lock                 | Accepted | 2     |
+| 023 | Security notification emails for every credential change        | Accepted | 2     |
+| 024 | Email change: verify new address, notify old, same user only    | Accepted | 2     |
+| 025 | Owner-scoped lookups: other users' objects are a 404            | Accepted | 2     |
 
 ---
 
@@ -290,3 +297,99 @@ setup resets rate-limit counters *from outside* (`redis-cli` in the Redis contai
 
 **Context.** Test hooks have a habit of shipping to production. See the many "debug
 parameter" authentication bypasses in CVE history.
+
+---
+
+## ADR-019: Step-up re-authentication ("sudo mode")
+
+**Decision.** Each session records `reauthenticated_at`, the last time the user proved a
+sign-in factor. Adding or removing passkeys, setting up or removing TOTP, regenerating recovery
+codes and changing email require it to be under **5 minutes** old; otherwise the API returns
+`403 {"code": "step_up_required"}` and the UI shows a "Confirm it's you" dialog (passkey, or
+TOTP if enabled) and retries the action. A successful step-up **rotates the session**.
+Signing in counts as fresh authentication. A registration session from email verification does
+not, because email isn't a sign-in factor.
+
+**Context.** Without step-up, a stolen session cookie (malware, an unlocked laptop) becomes
+permanent account takeover: add your own passkey, done. GitHub's "sudo mode" and Google's
+re-prompt use the same pattern.
+
+**Alternatives.** Re-prompt on every sensitive call (annoying when doing several changes in a
+row); no step-up (as above).
+
+## ADR-020: TOTP as an encrypted, replay-protected, phishable fallback
+
+**Decision.**
+
+- TOTP (RFC 6238, SHA-1, 6 digits, 30 s) is a *fallback* sign-in method. The UI says it can
+  be phished and steers users to passkeys.
+- 160-bit secrets are encrypted with **AES-256-GCM**. The ciphertext carries a key ID for
+  rotation, and the user ID is the associated data, so a ciphertext copied to another user's
+  row won't decrypt.
+- **±1 step** window. All steps are compared in constant time without early exit.
+- **Replay protection** by a single conditional `UPDATE ... SET last_used_step = :s WHERE
+  last_used_step < :s`. Any code at or before the last accepted step is rejected, even under
+  concurrency.
+- One per-account rate-limit budget (5 per 15 minutes) shared by sign-in, step-up and enrolment
+  confirmation, so total guesses per account are bounded.
+
+**Alternatives.** Hashing the secret (impossible: the server needs the plaintext to compute
+codes); a KMS (the right production answer, and the key-ID format makes swapping one in easy).
+
+**Consequences.** A phished TOTP code yields a full session, and with step-up via TOTP an
+attacker could add a passkey. That's inherent to offering TOTP; the mitigations are notification
+emails (ADR-023), audit events and the session list.
+
+## ADR-021: Recovery codes: Argon2id, single-use, a recovery not a method
+
+**Decision.** 10 codes of 10 characters from a 31-symbol alphabet without look-alikes (about
+49.5 bits each), formatted `XXXXX-XXXXX`, shown once, served with `Cache-Control: no-store`.
+They are stored as **Argon2id** hashes using the RFC 9106 low-memory profile (t=3, 64 MiB, p=4),
+hashed in a worker thread. Each code works once, with rows locked while one is spent.
+Regenerating deletes all previous codes. Unknown emails still pay for one dummy Argon2 check, to
+keep timing similar. A recovery sign-in creates a fresh full session, so the user can add a
+passkey immediately, and triggers a notification email with the number of codes left.
+
+Recovery codes don't count as a "sign-in method" for last-method protection: they're a
+one-shot way back in, not a way to keep using the account.
+
+**Alternatives.** SHA-256 hashes (fine for 256-bit tokens, too weak for about 50-bit codes if
+the database leaks); fewer, longer codes (worse to type).
+
+## ADR-022: Last-sign-in-method protection under a row lock
+
+**Decision.** Sign-in methods = passkeys + confirmed TOTP. Removing a passkey or TOTP is refused
+(`409 last_sign_in_method`) if it's the last one. The check and delete run after
+`SELECT ... FOR UPDATE` on the user row.
+
+**Context.** Without the lock, two parallel `DELETE` requests for an account's two passkeys can
+each see "2 methods" and both succeed, leaving zero (a classic time-of-check/time-of-use race).
+There's a test that fires both deletes concurrently and expects exactly one 204 and one 409.
+
+## ADR-023: Security notification emails for every credential change
+
+**Decision.** Adding or removing a passkey, enabling or disabling TOTP, regenerating recovery
+codes, using a recovery code, and requesting or completing an email change each send a
+notification to the account's email address, with time, IP and user agent. They're sent as
+background tasks.
+
+**Context.** Defence in depth for the cases where an attacker *does* get in (phished TOTP
+code, stolen recovery code): the owner finds out in minutes and can revoke sessions.
+
+## ADR-024: Email change: verify new address, notify old, same user only
+
+**Decision.** Changing email requires step-up. A link goes to the **new** address and a notice to
+the **old** one. The link only works while signed in **as the same user** (the token row
+stores `user_id`). The response is identical whether or not the new address is already taken
+(no enumeration), and nothing is sent to an address that already has an account.
+
+**Alternatives.** Changing email immediately (one stolen session plus a typo-squatted address
+would mean losing the account); confirming from the old address too (stronger, more friction;
+reasonable for high-value deployments).
+
+## ADR-025: Owner-scoped lookups: other users' objects are a 404
+
+**Decision.** Every account endpoint that takes an object ID (`/account/passkeys/{id}`,
+`/account/sessions/{id}`) queries with `WHERE id = :id AND user_id = :current_user`. A foreign
+ID is a 404, never a 403, so IDs can't be probed for existence. Tests cover rename, delete and
+revoke against another user's objects.

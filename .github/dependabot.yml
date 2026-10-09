@@ -1,30 +1,38 @@
 # Weekly dependency updates, grouped per ecosystem to keep PR noise down.
+# Cooldown: wait 7 days before proposing a newly published version. Malicious or broken
+# releases are usually yanked within days (security updates are not delayed by this).
 version: 2
 updates:
   - package-ecosystem: uv
     directory: /apps/api
     schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
     groups: { python: { patterns: ["*"] } }
 
   - package-ecosystem: npm
     directory: /apps/web
     schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
     groups: { web: { patterns: ["*"] } }
 
   - package-ecosystem: npm
     directory: /apps/demo-notes
     schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
     groups: { demo-notes: { patterns: ["*"] } }
 
   - package-ecosystem: docker
     directories: [/apps/api, /apps/web, /apps/demo-notes]
     schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
 
   - package-ecosystem: docker-compose
     directory: /
     schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
 
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
     groups: { actions: { patterns: ["*"] } }

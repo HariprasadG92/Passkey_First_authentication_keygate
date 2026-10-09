@@ -69,4 +69,12 @@ LIMITS: dict[str, Limit] = {
     "passkey_login_options:ip": Limit(30, 300),
     "passkey_login_verify:ip": Limit(20, 300),
     "passkey_register:session": Limit(10, 300),
+    # TOTP: 10^6 codes, ~3 valid at a time. 5 tries / 15 min / account makes online
+    # guessing hopeless (~10^-5 success chance per window).
+    "totp:user": Limit(5, 900),
+    "totp_login:ip": Limit(20, 900),
+    "recovery_login:ip": Limit(10, 900),
+    "recovery:user": Limit(5, 3600),
+    "step_up:session": Limit(10, 300),
+    "email_change:user": Limit(3, 3600),
 }

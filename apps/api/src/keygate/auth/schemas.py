@@ -118,6 +118,69 @@ class SessionOut(BaseModel):
     csrf_token: str
 
 
-class AccountOut(BaseModel):
+# ------------------------------------------------------------------ Phase 2: MFA etc.
+
+TOTP_CODE = r"^\d{6}$"
+
+
+class StepUpPasskeyRequest(_Strict):
+    credential: AuthenticationCredentialJSON
+
+
+class TotpCodeRequest(_Strict):
+    code: str = Field(pattern=TOTP_CODE)
+
+
+class TotpLoginRequest(_Strict):
+    email: EmailStr = Field(max_length=320)
+    code: str = Field(pattern=TOTP_CODE)
+
+
+class RecoveryLoginRequest(_Strict):
+    email: EmailStr = Field(max_length=320)
+    code: str = Field(min_length=10, max_length=16, pattern=r"^[A-Za-z0-9 -]+$")
+
+
+class TotpEnrolmentOut(BaseModel):
+    secret: str
+    otpauth_uri: str
+    qr_svg_data_uri: str
+
+
+class RecoveryCodesOut(BaseModel):
+    codes: list[str]
+
+
+class PasskeyRename(_Strict):
+    friendly_name: str = Field(min_length=1, max_length=64)
+
+
+class AddPasskeyRequest(_Strict):
+    credential: RegistrationCredentialJSON
+    friendly_name: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class SessionInfoOut(BaseModel):
+    id: uuid.UUID
+    current: bool
+    auth_method: str
+    ip_address: str | None
+    user_agent: str | None
+    created_at: datetime
+    last_seen_at: datetime
+
+
+class RevokedOut(BaseModel):
+    revoked: int
+
+
+class EmailChangeRequest(_Strict):
+    new_email: EmailStr = Field(max_length=320)
+
+
+class SecurityOverview(BaseModel):
     user: UserOut
     passkeys: list[PasskeyOut]
+    totp_enabled: bool
+    recovery_codes_remaining: int
+    step_up_valid_until: datetime | None

@@ -4,6 +4,7 @@ import { GeistSans } from "geist/font/sans";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { KeyRound } from "lucide-react";
+import { AuthNav } from "@/components/auth-nav";
 import "./globals.css";
 
 // Self-hosted fonts: no build-time or runtime requests to third-party font CDNs.
@@ -28,7 +29,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               Keygate
             </Link>
             <nav aria-label="Main" className="text-sm text-muted-foreground">
-              {/* Sign-in links arrive in Phase 1. */}
+              <AuthNav />
             </nav>
           </div>
         </header>

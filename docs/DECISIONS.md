@@ -13,6 +13,16 @@ what it costs. New decisions are appended; superseded ones are marked, never del
 | 006 | Fail closed on weak credentials in production                   | Accepted | 0     |
 | 007 | Separate liveness and readiness health checks                   | Accepted | 0     |
 | 008 | Supply-chain hygiene from day one                               | Accepted | 0     |
+| 009 | Server-side sessions in Postgres with hashed tokens and levels  | Accepted | 1     |
+| 010 | Session-bound signed double-submit CSRF, default-deny           | Accepted | 1     |
+| 011 | Magic-link token in the URL fragment, consumed by explicit click | Accepted | 1     |
+| 012 | Email can never bypass a passkey                                | Accepted | 1     |
+| 013 | Account-enumeration resistance                                  | Accepted | 1     |
+| 014 | WebAuthn policy: UV required, discoverable preferred, no attestation | Accepted | 1  |
+| 015 | Sign-counter check after signature verification                 | Accepted | 1     |
+| 016 | Non-`Secure`, unprefixed cookies on `http://localhost` in dev   | Accepted | 1     |
+| 017 | Audit events in their own transaction, append-only in the DB    | Accepted | 1     |
+| 018 | No test-only bypasses in the API                                | Accepted | 1     |
 
 ---
 
@@ -149,3 +159,134 @@ reveal hostnames, versions or error text.
 - Gitleaks runs on every commit (staged changes) and every push (full history).
 
 **Consequences.** Upgrades are deliberate and show up as reviewable lockfile diffs.
+
+---
+
+## ADR-009: Server-side sessions in Postgres with hashed tokens and levels
+
+**Decision.** A session is a row in `sessions`. The cookie holds a 256-bit random token, and
+only its SHA-256 is stored. Sessions have a **level**: `registration` (issued after email
+verification, lives 15 minutes, can only enrol the first passkey) or `full`. The session is
+rotated (old row revoked, new token issued) on every sign-in and on the registration-to-full
+upgrade. There is an idle timeout (30 min) and an absolute timeout (12 h). `last_seen_at` is
+written at most once a minute.
+
+**Context.** The spec forbids JWTs in localStorage. Server-side state makes revocation instant,
+which Phase 2's "revoke all other sessions" needs. Hashing the token means a database leak
+(backup, SQL injection, replica) yields no usable cookies.
+
+**Alternatives.** Redis-only sessions (fast, but listing and auditing sessions per user needs a
+secondary index anyway, and Redis is configured as a cache that may evict); signed stateless
+cookies (no server-side revocation).
+
+**Consequences.** One indexed lookup per authenticated request. SHA-256 rather than a slow hash
+is correct here: the input is 256 bits of randomness, so there's nothing to brute-force.
+
+## ADR-010: Session-bound signed double-submit CSRF, default-deny
+
+**Decision.** The CSRF cookie is `nonce.HMAC(secret, session-binding, nonce)`, readable by JS
+and `SameSite=Strict`. Every non-GET request must echo it in `X-CSRF-Token`, and the MAC must
+verify against the *current* session cookie (or `anon`). The check is a global FastAPI
+dependency: new routes are protected unless explicitly exempted.
+
+**Context.** `SameSite=Lax` blocks most cross-site POSTs but not all (same-site subdomains,
+browser quirks, top-level GET-to-POST tricks). The naive double-submit pattern is weak if an
+attacker can plant cookies; binding the MAC to the session closes that gap. Tokens are
+re-issued on every login and logout.
+
+**Alternatives.** Synchronizer token stored server-side (an extra lookup per request);
+`Origin` header checks only (good defence in depth, but some privacy tools strip the header).
+
+## ADR-011: Magic-link token in the URL fragment, consumed by explicit click
+
+**Decision.** Links look like `/verify-email#token=...`. The page reads the fragment, removes
+it from the address bar with `history.replaceState`, and only spends the token when the user
+clicks **Confirm email** (a POST). Tokens are 32 random bytes, stored as SHA-256, single-use
+(atomic `UPDATE ... WHERE used_at IS NULL`), valid for 15 minutes. Requesting a new link
+invalidates older ones.
+
+**Context.** Query strings end up in server logs, proxy logs, browser history sync and
+`Referer` headers. Fragments are never sent to a server. Requiring a click stops email
+security scanners and link previews (which GET every URL) from burning or using the token.
+
+**Consequences.** One extra click for the user.
+
+## ADR-012: Email can never bypass a passkey
+
+**Decision.** Magic links are only issued for addresses whose account has **no** passkey, and
+this is checked again when the token is consumed. The registration session they create can
+only enrol the *first* passkey. Account recovery (Phase 2) uses recovery codes, not email.
+
+**Context.** If email could sign you in, the account would only be as strong as the mailbox,
+and the phishing resistance of passkeys would be lost.
+
+## ADR-013: Account-enumeration resistance
+
+**Decision.**
+
+- `POST /auth/signup` always returns the same 202 body. New addresses get a link; existing
+  accounts get a "you already have an account" notice. The email is sent as a background task
+  so response timing doesn't differ.
+- Email-first sign-in options for unknown addresses contain a **decoy** credential ID:
+  `HMAC(secret, email)`, stable per address and the same length as a real one.
+
+**Trade-offs.** A user with several passkeys gets several `allowCredentials` entries while a
+decoy shows one, so a determined attacker can still distinguish *some* accounts. Usernameless
+sign-in, the primary flow, reveals nothing.
+
+## ADR-014: WebAuthn policy: UV required, discoverable preferred, no attestation
+
+**Decision.** `userVerification: "required"` on every ceremony (enforced server-side too),
+`residentKey: "preferred"`, `attestation: "none"`, ES256/EdDSA/RS256 accepted (library
+defaults). User handles are 32 random bytes, never the email or primary key. `excludeCredentials`
+prevents double registration. Challenges are 32 bytes, stored in Redis keyed by session
+(registration) or by a random ceremony ID (sign-in), with a 5-minute TTL and `GETDEL`.
+
+**Alternatives.** `residentKey: "required"` (would refuse older security keys); requesting
+attestation (only useful with FIDO MDS verification, listed in the roadmap; without it,
+attestation adds privacy cost and no assurance).
+
+## ADR-015: Sign-counter check after signature verification
+
+**Decision.** py_webauthn checks the sign counter *before* the signature and raises a generic
+error. We pass `credential_current_sign_count=0` to skip that check, then compare counters
+ourselves *after* the signature has verified. If the counter didn't increase (and isn't 0/0),
+sign-in is refused and a `credential.sign_count_regression` audit event with severity **high**
+is written. The stored counter is not overwritten.
+
+**Context.** Only a correctly signed assertion should be able to raise a "cloned authenticator"
+alarm; otherwise anyone could spam alarms with garbage. Synced passkeys (iCloud Keychain, Google
+Password Manager) always report 0, which is allowed.
+
+**Consequences.** The credential isn't disabled automatically, since a false positive would lock
+the user out. An admin reviews the high-severity event (auditor view, Phase 4).
+
+## ADR-016: Non-`Secure`, unprefixed cookies on `http://localhost` in dev
+
+**Decision.** `KEYGATE_COOKIE_SECURE` defaults to `true` only in production. Secure cookies get
+the `__Host-` prefix (`__Host-kg_session`, `__Host-kg_csrf`). In development on plain
+`http://localhost` they're `kg_session` / `kg_csrf` without `Secure`. Production refuses to
+start with non-Secure cookies or non-https origins.
+
+**Context.** `__Host-` requires `Secure`, and not every browser stores `Secure` cookies over
+`http://localhost`. Dev convenience is confined to dev by the fail-closed production check.
+
+## ADR-017: Audit events in their own transaction, append-only in the DB
+
+**Decision.** `AuditLog.record()` opens its own short transaction, so failures that roll back
+the request (rejected sign-ins, invalid links) are still recorded. A `BEFORE UPDATE OR DELETE`
+trigger on `audit_events` raises an error. Audit rows have no foreign keys, so history survives
+user deletion. Details never include tokens, codes, signatures or credential material.
+
+**Consequences.** In production the app's DB role should also lack `TRUNCATE` on the table,
+since triggers don't fire on `TRUNCATE` (documented for Phase 6 hardening).
+
+## ADR-018: No test-only bypasses in the API
+
+**Decision.** There are no "test mode" switches that weaken security (no rate-limit bypass,
+fixed challenges or fake verification). API tests use a software authenticator that produces
+real signatures. Browser E2E tests use Chrome's CDP virtual authenticator. The E2E global
+setup resets rate-limit counters *from outside* (`redis-cli` in the Redis container).
+
+**Context.** Test hooks have a habit of shipping to production. See the many "debug
+parameter" authentication bypasses in CVE history.

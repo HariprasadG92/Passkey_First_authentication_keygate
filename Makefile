@@ -57,6 +57,16 @@ logs: ## Tail logs from all services
 migrate: ## Apply database migrations
 	$(COMPOSE) exec api alembic upgrade head
 
+.PHONY: admin
+admin: ## Grant the admin role to an existing account: make admin email=you@example.com
+	@test -n "$(email)" || (echo 'usage: make admin email=you@example.com' && exit 1)
+	$(COMPOSE) exec api python -m keygate.cli grant-role --email "$(email)" --role admin
+
+.PHONY: auditor
+auditor: ## Grant the auditor role: make auditor email=someone@example.com
+	@test -n "$(email)" || (echo 'usage: make auditor email=someone@example.com' && exit 1)
+	$(COMPOSE) exec api python -m keygate.cli grant-role --email "$(email)" --role auditor
+
 .PHONY: migration
 migration: ## Create a migration: make migration m="add users table"
 	@test -n "$(m)" || (echo 'usage: make migration m="message"' && exit 1)

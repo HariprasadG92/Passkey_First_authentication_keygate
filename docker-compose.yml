@@ -29,7 +29,7 @@ x-api-env: &api-env
 
 services:
   gateway:
-    image: caddy:2.11.7-alpine
+    image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
     ports:
       - "127.0.0.1:${GATEWAY_PORT:-80}:80"
     volumes:
@@ -143,7 +143,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-keygate}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -160,7 +160,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:8.8.3-alpine
+    image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
     command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
@@ -178,7 +178,7 @@ services:
     restart: unless-stopped
 
   mailpit:
-    image: axllent/mailpit:v1.31.4
+    image: axllent/mailpit:v1.31.4@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48
     ports:
       - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
     environment:

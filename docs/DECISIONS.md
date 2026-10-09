@@ -48,6 +48,10 @@ what it costs. New decisions are appended; superseded ones are marked, never del
 | 041 | Consent per user and client; RP-initiated logout without open redirects | Accepted | 5 |
 | 042 | Notes demo: confidential client using the BFF pattern           | Accepted | 5     |
 | 043 | CSRF token is reused while valid (fixes a token-rotation race)  | Accepted | 5     |
+| 044 | CI scanning policy: block on fixable HIGH/CRITICAL              | Accepted | 6     |
+| 045 | Minimal runtime images, pinned by digest                        | Accepted | 6     |
+| 046 | E2E in CI runs the production images                            | Accepted | 6     |
+| 047 | Dependabot with a 7-day cooldown; Actions pinned to SHAs         | Accepted | 6     |
 
 ---
 
@@ -670,3 +674,49 @@ session. Tokens still change whenever the session changes (sign-in, step-up, sig
 **Context.** Found by the Phase 5 E2E suite. Minting a new token on every call let two
 concurrent requests (the header nav and the consent page) race: one read the cookie, the other
 replaced it, and the first then sent a header that no longer matched the cookie, giving a 403.
+
+---
+
+## ADR-044: CI scanning policy: block on fixable HIGH/CRITICAL
+
+**Decision.** CI fails on any finding from Semgrep (Python, TypeScript, React, OWASP Top 10,
+secrets, Dockerfile rules), Gitleaks (full history), pip-audit and `pnpm audit --prod`
+(high and above), and on **fixable** HIGH/CRITICAL findings from Trivy (filesystem,
+misconfiguration and every production image). Unfixed OS advisories are reported but don't
+block: there is nothing to upgrade to, and blocking would only train people to ignore the gate.
+
+**Context.** Phase 6 started by running every scanner locally. Fixes: overriding Next.js 15's
+vulnerable postcss, moving the shadcn CLI out of production dependencies, removing npm from
+Node runtime images, moving the API base to Debian trixie (57 → 44 unfixed advisories), and
+adding a Dependabot cooldown flagged by Semgrep.
+
+## ADR-045: Minimal runtime images, pinned by digest
+
+**Decision.** Runtime images contain only what runs: the Python venv or Next.js standalone
+output, run as uid 10001, with no compilers, no package-manager caches, and (for Node) no
+npm, npx, corepack or yarn. Base and service images are referenced as `tag@sha256:digest`.
+CI smoke-boots each image and asserts it serves while running as non-root.
+
+**Context.** Smoke-booting the runtime image found a real bug: `httpx` was a dev-only
+dependency although the app imports it, so the production image crashed while the dev
+container (which installs dev dependencies) worked.
+
+## ADR-046: E2E in CI runs the production images
+
+**Decision.** CI's E2E job uses `docker-compose.ci.yml` to switch the API, UI and Notes to
+their `runtime` targets with no source mounts. The tests therefore exercise exactly what would
+be deployed. Local `make dev` keeps the hot-reload dev targets.
+
+**Context.** The dev UI container (uid 1000) couldn't write to a CI checkout owned by uid 1001.
+Running production images fixes that, removes `next dev`'s compile-on-demand delays, and is a
+stronger test anyway.
+
+## ADR-047: Dependabot with a 7-day cooldown; Actions pinned to SHAs
+
+**Decision.** Dependabot proposes weekly, grouped updates for Python, both Node apps, Docker
+images, Compose and GitHub Actions, but waits **7 days** after a release (security updates
+aren't delayed). Third-party Actions are pinned to full commit SHAs, and the workflow token
+is read-only.
+
+**Context.** Malicious package releases and hijacked Action tags are usually detected and
+pulled within days; a cooldown and immutable references keep CI out of that window.

@@ -1,0 +1,32 @@
+# CI / production-like override: run the *runtime* images (non-root, no source mounts,
+# no dev tooling) instead of the hot-reload dev targets.
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.ci.yml docker compose up --build --wait
+# E2E then exercises exactly what would be deployed.
+
+services:
+  api:
+    build:
+      target: runtime
+    volumes: !reset []
+    command:
+      - sh
+      - -c
+      - >-
+        alembic upgrade head &&
+        python -m keygate.cli ensure-client --client-id "$$NOTES_CLIENT_ID" --name "Notes (demo)"
+        --secret-env NOTES_CLIENT_SECRET
+        --redirect-uri http://127.0.0.1:3001/api/auth/callback
+        --post-logout-redirect-uri http://127.0.0.1:3001/
+        --scopes "openid profile email notes:read notes:write" &&
+        exec uvicorn keygate.main:create_app --factory --host 0.0.0.0 --port 8000
+        --no-access-log --proxy-headers
+
+  web:
+    build:
+      target: runtime
+    volumes: !reset []
+
+  demo-notes:
+    build:
+      target: runtime
+    volumes: !reset []

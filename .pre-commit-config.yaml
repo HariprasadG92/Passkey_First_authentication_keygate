@@ -9,6 +9,7 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        args: [--unsafe] # syntax only: allows Compose tags such as !reset
       - id: check-toml
       - id: check-json
         exclude: ^apps/(web|demo-notes)/tsconfig\.json$ # JSONC (comments allowed)

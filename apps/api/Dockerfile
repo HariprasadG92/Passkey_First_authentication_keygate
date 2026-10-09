@@ -3,13 +3,12 @@
 # image contains only the virtualenv and source, runs as an unprivileged user and has
 # no compiler toolchain or package manager cache.
 
-ARG PYTHON_VERSION=3.12
-ARG UV_VERSION=0.11.23
-
-FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv
+# Base images are pinned by digest (tag kept for readability): reproducible builds, and a
+# re-pushed tag can't silently change what we run. Dependabot proposes updates.
+FROM ghcr.io/astral-sh/uv:0.11.23@sha256:d0a0a753ab981624b49c97abc98821c1c09f4ca69d1ef5cee69c501be3d88479 AS uv
 
 # ---------- base ----------
-FROM python:${PYTHON_VERSION}-slim-bookworm AS base
+FROM python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \

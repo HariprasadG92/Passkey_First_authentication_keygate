@@ -69,7 +69,7 @@ services: .env
 	$(COMPOSE) up --detach --wait postgres redis
 
 .PHONY: test
-test: test-api test-web ## Run all tests
+test: test-api test-web test-e2e ## Run all tests
 
 .PHONY: test-api
 test-api: services ## API tests (unit + integration against compose Postgres/Redis)
@@ -77,8 +77,12 @@ test-api: services ## API tests (unit + integration against compose Postgres/Red
 		uv run pytest --cov --cov-report=term
 
 .PHONY: test-web
-test-web: ## Web end-to-end tests (Playwright, production build)
+test-web: ## Web smoke tests (Playwright against the production build)
 	cd $(WEB_DIR) && pnpm test
+
+.PHONY: test-e2e
+test-e2e: up ## Full-stack E2E tests (Playwright + virtual WebAuthn authenticator)
+	cd $(WEB_DIR) && pnpm test:e2e
 
 .PHONY: lint
 lint: lint-api lint-web ## Lint, format-check and type-check everything

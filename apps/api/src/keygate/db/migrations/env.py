@@ -24,6 +24,10 @@ target_metadata = Base.metadata
 
 
 def _database_url() -> str:
+    # Programmatic callers (the test suite) may pass a URL explicitly.
+    override = config.attributes.get("database_url")
+    if isinstance(override, str):
+        return override
     return get_settings().database_url.get_secret_value()
 
 

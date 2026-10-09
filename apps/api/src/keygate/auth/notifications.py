@@ -19,6 +19,8 @@ EVENTS = {
     "recovery_code_used": "A recovery code was used to sign in to your account.",
     "email_change_requested": "A request was made to change your account's email address.",
     "email_changed": "Your account's email address was changed.",
+    "social_linked": "A social account was linked and can now sign in to your account.",
+    "social_unlinked": "A social account was unlinked from your account.",
 }
 
 

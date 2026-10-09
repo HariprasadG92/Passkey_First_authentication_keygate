@@ -69,6 +69,8 @@ export type SessionInfo = {
   level: "registration" | "full" | null;
   user: User | null;
   csrf_token: string;
+  /** For showing/hiding UI only: the API enforces every permission itself. */
+  permissions: string[];
 };
 
 export type Passkey = {
@@ -112,3 +114,40 @@ export type TotpEnrolment = { secret: string; otpauth_uri: string; qr_svg_data_u
 export function isStepUpRequired(err: unknown): boolean {
   return err instanceof ApiError && err.code === "step_up_required";
 }
+
+export type AdminUserSummary = {
+  id: string;
+  email: string;
+  display_name: string;
+  status: "active" | "suspended";
+  roles: string[];
+  created_at: string;
+};
+
+export type AdminUserDetail = AdminUserSummary & {
+  email_verified: boolean;
+  passkeys: number;
+  totp_enabled: boolean;
+  social_providers: string[];
+  sessions: {
+    id: string;
+    auth_method: string;
+    ip_address: string | null;
+    user_agent: string | null;
+    last_seen_at: string;
+  }[];
+};
+
+export type AuditEvent = {
+  id: string;
+  occurred_at: string;
+  event_type: string;
+  severity: "info" | "warning" | "high";
+  result: "success" | "failure";
+  actor_user_id: string | null;
+  target_user_id: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  request_id: string | null;
+  details: Record<string, unknown>;
+};

@@ -1,23 +1,5 @@
-import { expect, magicLinkFor, test, uniqueEmail } from "./fixtures";
-
-async function signUp(page: import("@playwright/test").Page, email: string, keyName: string) {
-  await page.goto("/signup");
-  await page.getByLabel("Email").fill(email);
-  await page.getByRole("button", { name: "Send confirmation link" }).click();
-  await expect(page.getByTestId("signup-sent")).toBeVisible();
-
-  const link = await magicLinkFor(email);
-  // The token is in the fragment, so it's never sent to the server or logged.
-  expect(new URL(link).search).toBe("");
-  await page.goto(new URL(link).pathname + new URL(link).hash);
-  // The page removes the token from the address bar immediately.
-  await expect(page).toHaveURL(/\/verify-email$/);
-
-  await page.getByRole("button", { name: "Confirm email" }).click();
-  await page.getByLabel("Name this passkey").fill(keyName);
-  await page.getByRole("button", { name: "Create passkey" }).click();
-  await expect(page.getByTestId("account-heading")).toBeVisible();
-}
+import { expect, test, uniqueEmail } from "./fixtures";
+import { signOut, signUp, waitForSignInPage } from "./helpers";
 
 test("sign up with a magic link, create a passkey, sign out and back in (usernameless)", async ({
   page,
@@ -30,21 +12,20 @@ test("sign up with a magic link, create a passkey, sign out and back in (usernam
   const [credential] = await authenticator.credentials();
   expect(credential.isResidentCredential).toBe(true);
 
-  await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page).toHaveURL(/\/signin$/);
+  await signOut(page);
   expect(
     (await page.context().cookies()).find((c) => c.name.endsWith("kg_session")),
   ).toBeUndefined();
 
   await page.getByRole("button", { name: "Sign in with a passkey" }).click();
   await expect(page.getByTestId("account-heading")).toBeVisible();
-  await expect(page.getByText(email)).toBeVisible();
+  await expect(page.getByRole("navigation").getByText(email)).toBeVisible();
 });
 
 test("email-first sign-in", async ({ page, authenticator }) => {
   const email = uniqueEmail("emailfirst");
   await signUp(page, email, "Key");
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await signOut(page);
 
   await page.getByLabel("Email").fill(email);
   await page.getByRole("button", { name: "Continue" }).click();
@@ -66,5 +47,5 @@ test("session cookie is HttpOnly and never readable by page scripts", async ({
 
 test("account page redirects to sign-in when signed out", async ({ page }) => {
   await page.goto("/account");
-  await expect(page).toHaveURL(/\/signin$/);
+  await waitForSignInPage(page);
 });

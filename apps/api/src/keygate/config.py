@@ -93,6 +93,16 @@ class Settings(BaseSettings):
     google_client_secret: SecretStr | None = None
     social_flow_ttl_seconds: int = Field(default=600, ge=60, le=1800)
 
+    # --- OpenID Connect provider -----------------------------------------------
+    # The issuer is ``public_url``. Lifetimes per the spec: codes 60 s, access 10 min.
+    oidc_code_ttl_seconds: int = Field(default=60, ge=10, le=600)
+    oidc_access_token_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+    oidc_id_token_ttl_seconds: int = Field(default=600, ge=60, le=3600)
+    oidc_refresh_token_ttl_days: int = Field(default=7, ge=1, le=90)
+    oidc_refresh_family_ttl_days: int = Field(default=30, ge=1, le=365)
+    # Audience of access tokens carrying notes:* scopes (the Notes resource server).
+    oidc_notes_audience: str = "notes-api"
+
     # --- Email ------------------------------------------------------------------
     magic_link_ttl_minutes: int = Field(default=15, ge=1, le=60)
     smtp_host: str = "localhost"
@@ -128,6 +138,10 @@ class Settings(BaseSettings):
     @property
     def oauth_cookie_name(self) -> str:
         return "__Host-kg_oauth" if self.secure_cookies else "kg_oauth"
+
+    @property
+    def issuer(self) -> str:
+        return self.public_url.rstrip("/")
 
     @property
     def step_up_ttl(self) -> timedelta:

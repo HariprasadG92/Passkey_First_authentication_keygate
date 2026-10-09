@@ -10,6 +10,8 @@ PERMISSIONS: dict[str, str] = {
     "users:sessions:revoke": "Revoke other users' sessions",
     "roles:assign": "Grant and revoke roles",
     "audit:read": "Read the audit log",
+    "clients:read": "View registered OIDC clients",
+    "clients:write": "Register, edit and disable OIDC clients",
 }
 
 ROLES: dict[str, tuple[str, list[str]]] = {

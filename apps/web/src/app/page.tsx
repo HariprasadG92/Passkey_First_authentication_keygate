@@ -1,4 +1,5 @@
 import { Fingerprint, ShieldCheck, Workflow } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ApiStatus } from "@/components/api-status";
 
@@ -29,7 +30,12 @@ export default function HomePage() {
           Keygate is a self-hostable identity service built around passkeys.
         </p>
         <div className="flex items-center gap-4">
-          <Button disabled>Sign in with a passkey</Button>
+          <Button asChild>
+            <Link href="/signin">Sign in with a passkey</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href="/signup">Create account</Link>
+          </Button>
           <ApiStatus />
         </div>
       </section>

@@ -48,8 +48,24 @@ services:
     build:
       context: ./apps/api
       target: dev
+    # Dev start-up: sync deps, migrate, register the Notes demo client, then serve.
+    command:
+      - sh
+      - -c
+      - >-
+        uv sync --frozen &&
+        alembic upgrade head &&
+        python -m keygate.cli ensure-client --client-id "$$NOTES_CLIENT_ID" --name "Notes (demo)"
+        --secret-env NOTES_CLIENT_SECRET
+        --redirect-uri http://127.0.0.1:3001/api/auth/callback
+        --post-logout-redirect-uri http://127.0.0.1:3001/
+        --scopes "openid profile email notes:read notes:write" &&
+        exec uvicorn keygate.main:create_app --factory --host 0.0.0.0 --port 8000
+        --reload --reload-dir src --no-access-log
     environment:
       <<: *api-env
+      NOTES_CLIENT_ID: ${NOTES_CLIENT_ID:-notes-demo}
+      NOTES_CLIENT_SECRET: ${NOTES_CLIENT_SECRET:?set NOTES_CLIENT_SECRET in .env}
       # Served behind the gateway at /api; only trust X-Forwarded-For from the gateway.
       UVICORN_ROOT_PATH: /api
       FORWARDED_ALLOW_IPS: 172.30.42.10
@@ -87,6 +103,37 @@ services:
       # Keep the container's own node_modules and build cache, not the host's.
       - /app/node_modules
       - /app/.next
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    restart: unless-stopped
+
+  # Demo relying party: signs in through Keygate with OpenID Connect. Served on a
+  # different cookie host (127.0.0.1, not localhost), so Keygate's cookies never reach it.
+  demo-notes:
+    build:
+      context: ./apps/demo-notes
+      target: dev
+    environment:
+      WATCHPACK_POLLING: "true"
+      KEYGATE_ISSUER: ${KEYGATE_PUBLIC_URL:-http://localhost}
+      KEYGATE_INTERNAL_URL: http://gateway
+      NOTES_BASE_URL: http://127.0.0.1:3001
+      NOTES_CLIENT_ID: ${NOTES_CLIENT_ID:-notes-demo}
+      NOTES_CLIENT_SECRET: ${NOTES_CLIENT_SECRET:?set NOTES_CLIENT_SECRET in .env}
+      NOTES_SESSION_SECRET: ${NOTES_SESSION_SECRET:?set NOTES_SESSION_SECRET in .env}
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./apps/demo-notes:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      gateway:
+        condition: service_started
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s

@@ -12,7 +12,7 @@
 | 2     | Credential management, MFA, recovery        | ✅ Done        |
 | 3     | Social login (GitHub, Google)               | ✅ Done        |
 | 4     | RBAC, admin dashboard, audit log            | ✅ Done        |
-| 5     | Keygate as an OIDC provider + demo app      | ⏳ Planned     |
+| 5     | Keygate as an OIDC provider + demo app      | ✅ Done        |
 | 6     | Hardening, CI, documentation                | ⏳ Planned     |
 
 ## Quick start
@@ -29,6 +29,8 @@ make dev        # creates .env from .env.example on first run, then builds and s
 | http://localhost/api/health  | API liveness                        |
 | http://localhost/api/docs    | API docs (development only)         |
 | http://localhost:8025        | Mailpit: emails sent by Keygate     |
+| http://127.0.0.1:3001        | **Notes**: demo app that signs in with Keygate |
+| http://localhost/.well-known/openid-configuration | OIDC discovery |
 
 Port 80 already taken? Set `GATEWAY_PORT` in `.env` **and** `KEYGATE_PUBLIC_URL` to the
 same origin (e.g. `http://localhost:8080`): WebAuthn checks the exact origin.
@@ -42,6 +44,33 @@ same origin (e.g. `http://localhost:8080`): WebAuthn checks the exact origin.
 4. Sign out, then **Sign in with a passkey**: no username needed.
 5. On the account page: add more passkeys, set up an authenticator app, generate recovery
    codes, review and revoke sessions. Sensitive changes ask you to re-confirm with your passkey.
+
+## Keygate as an OpenID Connect provider
+
+Apps sign users in through Keygate the way they would with Okta or Entra ID:
+**Authorization Code + PKCE** (S256, required for every client), consent, ES256-signed ID
+tokens, short-lived JWT access tokens, rotating refresh tokens with reuse detection, and
+RP-initiated logout.
+
+| Endpoint | Path |
+| -------- | ---- |
+| Discovery | `/.well-known/openid-configuration` |
+| Authorize | `/oauth2/authorize` |
+| Token | `/oauth2/token` |
+| UserInfo | `/oauth2/userinfo` |
+| JWKS | `/oauth2/jwks` |
+| Revocation | `/oauth2/revoke` |
+| End session | `/oauth2/logout` |
+
+Scopes: `openid`, `profile`, `email`, `notes:read`, `notes:write`.
+
+**Try the demo**: open <http://127.0.0.1:3001>, click **Sign in with Keygate**, use your
+passkey, approve the consent screen, and you're back in Notes, signed in. Notes keeps tokens
+server-side only and calls its own API with the access token (backend-for-frontend pattern).
+**Sign out** ends both sessions.
+
+Register your own apps under **Apps** in the header (admins), or rotate the signing key with
+`make rotate-keys`.
 
 ## Roles and administration
 
@@ -130,6 +159,7 @@ syncs dependencies on start, while code changes hot-reload on their own.
 ```
 apps/api       FastAPI auth service (Python 3.12, SQLAlchemy 2 async, Alembic)
 apps/web       Keygate UI (Next.js 15, Tailwind, shadcn/ui)
+apps/demo-notes  Demo relying party (Next.js, openid-client, BFF)
 infra/gateway  Caddy config: one origin for UI + API
 docs/          Architecture decisions (more docs land in Phase 6)
 ```

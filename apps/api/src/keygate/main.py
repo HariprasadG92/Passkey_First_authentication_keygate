@@ -8,7 +8,7 @@ from fastapi import Depends, FastAPI
 from redis.asyncio import Redis
 
 from keygate import __version__
-from keygate.api import account, admin, auth, health, social
+from keygate.api import account, admin, admin_clients, auth, health, oidc, social
 from keygate.audit.service import AuditLog
 from keygate.auth.email import Mailer, SMTPMailer
 from keygate.auth.sessions import SessionManager
@@ -71,4 +71,6 @@ def create_app(settings: Settings | None = None, *, mailer: Mailer | None = None
     app.include_router(account.router)
     app.include_router(social.router)
     app.include_router(admin.router)
+    app.include_router(admin_clients.router)
+    app.include_router(oidc.router)
     return app

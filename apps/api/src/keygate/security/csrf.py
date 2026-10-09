@@ -52,6 +52,19 @@ def issue_csrf_token(settings: Settings, response: Response, session_token: str 
     return token
 
 
+def current_or_new_csrf_token(
+    settings: Settings, request_cookie: str | None, response: Response, session_token: str | None
+) -> str:
+    """Reuse the browser's token if it's still valid for this session; otherwise issue one.
+
+    Re-minting on every call would race: a page that read the cookie, then had another
+    request replace it before its own request went out, would send a header that no
+    longer matches the cookie. Tokens still change whenever the session does."""
+    if request_cookie and is_valid_csrf_token(settings, request_cookie, session_token):
+        return request_cookie
+    return issue_csrf_token(settings, response, session_token)
+
+
 def is_valid_csrf_token(settings: Settings, token: str, session_token: str | None) -> bool:
     nonce, _, mac = token.partition(".")
     if not nonce or not mac:

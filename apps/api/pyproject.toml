@@ -17,6 +17,7 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "pydantic[email]>=2.14.0",
     "pyotp>=2.10.0",
+    "python-multipart>=0.0.32",
     "redis>=8.1.0",
     "segno>=1.6.6",
     "sqlalchemy[asyncio]>=2.1.4",
@@ -53,7 +54,7 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # assert is the point of tests
+"tests/**" = ["S101", "S105", "S106"]  # asserts and dummy credentials are the point of tests
 "src/keygate/db/migrations/**" = ["N999"]
 
 [tool.ruff.lint.flake8-tidy-imports]

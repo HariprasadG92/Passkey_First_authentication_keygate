@@ -804,7 +804,9 @@ dependencies = [
     { name = "argon2-cffi" },
     { name = "asyncpg" },
     { name = "authlib" },
+    { name = "cryptography" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "joserfc" },
     { name = "pydantic", extra = ["email"] },
     { name = "pydantic-settings" },
@@ -821,7 +823,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "cbor2" },
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -838,7 +839,9 @@ requires-dist = [
     { name = "argon2-cffi", specifier = ">=25.1.0" },
     { name = "asyncpg", specifier = ">=0.32.0" },
     { name = "authlib", specifier = ">=1.8.0" },
+    { name = "cryptography", specifier = ">=50.0.2" },
     { name = "fastapi", specifier = ">=0.143.0" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "joserfc", specifier = ">=1.7.5" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.14.0" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
@@ -855,7 +858,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "cbor2", specifier = ">=6.1.5" },
-    { name = "httpx", specifier = ">=0.28.1" },
     { name = "mypy", specifier = ">=2.4.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },

@@ -79,4 +79,6 @@ LIMITS: dict[str, Limit] = {
     "email_change:user": Limit(3, 3600),
     "social_start:ip": Limit(30, 300),
     "admin:actor": Limit(60, 60),
+    "token:ip": Limit(60, 60),
+    "token:client": Limit(120, 60),
 }

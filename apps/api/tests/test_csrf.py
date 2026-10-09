@@ -57,3 +57,24 @@ async def test_token_bound_to_session(client: httpx.AsyncClient, mailer: InMemor
 
 async def test_safe_methods_need_no_token(raw_client: httpx.AsyncClient) -> None:
     assert (await raw_client.get("/auth/session")).status_code == 200
+
+
+async def test_session_endpoint_keeps_a_valid_token(raw_client: httpx.AsyncClient) -> None:
+    """Concurrent page requests must not invalidate each other's CSRF header."""
+    first = (await raw_client.get("/auth/session")).json()["csrf_token"]
+    second = await raw_client.get("/auth/session")
+    assert second.json()["csrf_token"] == first
+    assert "kg_csrf" not in second.headers.get("set-cookie", "")
+
+
+async def test_session_endpoint_replaces_token_bound_to_another_session(
+    client: httpx.AsyncClient, mailer: InMemoryMailer
+) -> None:
+    anon = client.cookies.get("kg_csrf")
+    await sign_up(client, mailer, SoftAuthenticator())
+    session = client.cookies.get("kg_session") or ""
+    client.cookies.clear()
+    client.cookies.set("kg_session", session)
+    client.cookies.set("kg_csrf", anon or "")  # stale: bound to the anonymous state
+    fresh = (await client.get("/auth/session")).json()["csrf_token"]
+    assert fresh != anon

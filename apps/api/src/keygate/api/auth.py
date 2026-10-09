@@ -49,7 +49,7 @@ from keygate.mfa import recovery
 from keygate.mfa.totp import TotpService
 from keygate.rbac.service import permissions_for
 from keygate.security.crypto import Encryptor
-from keygate.security.csrf import issue_csrf_token
+from keygate.security.csrf import current_or_new_csrf_token
 from keygate.security.rate_limit import LIMITS
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -73,11 +73,16 @@ def _user_out(user: User) -> UserOut:
 
 @router.get("/session", response_model=SessionOut)
 async def get_session(
-    ctx: OptionalSession, response: Response, settings: SettingsDep, db: DB
+    ctx: OptionalSession, request: Request, response: Response, settings: SettingsDep, db: DB
 ) -> SessionOut:
     """Current session state, plus a fresh CSRF token bound to it. ``permissions`` is for
     showing/hiding UI only; the API enforces every permission itself."""
-    csrf = issue_csrf_token(settings, response, ctx.token if ctx else None)
+    csrf = current_or_new_csrf_token(
+        settings,
+        request.cookies.get(settings.csrf_cookie_name),
+        response,
+        ctx.token if ctx else None,
+    )
     if ctx is None:
         return SessionOut(authenticated=False, csrf_token=csrf)
     full = ctx.session.level is SessionLevel.FULL

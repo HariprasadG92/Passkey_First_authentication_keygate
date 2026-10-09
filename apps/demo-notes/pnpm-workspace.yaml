@@ -1,0 +1,4 @@
+# pnpm 11 blocks dependency lifecycle scripts unless explicitly allowed (supply-chain hardening).
+allowBuilds:
+  # Ships prebuilt native binaries; its postinstall is only a fallback downloader.
+  unrs-resolver: false

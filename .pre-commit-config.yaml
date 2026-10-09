@@ -11,7 +11,7 @@ repos:
       - id: check-yaml
       - id: check-toml
       - id: check-json
-        exclude: ^apps/web/tsconfig\.json$ # JSONC (comments allowed)
+        exclude: ^apps/(web|demo-notes)/tsconfig\.json$ # JSONC (comments allowed)
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
@@ -65,4 +65,23 @@ repos:
         entry: bash -c 'cd apps/web && pnpm exec tsc --noEmit'
         language: system
         files: ^apps/web/.*\.(ts|tsx)$
+        pass_filenames: false
+
+      # --- Notes demo (TypeScript) ---
+      - id: prettier-notes
+        name: prettier (demo-notes)
+        entry: bash -c 'cd apps/demo-notes && pnpm exec prettier --write --ignore-unknown "${@#apps/demo-notes/}"' --
+        language: system
+        files: ^apps/demo-notes/
+        exclude: ^apps/demo-notes/pnpm-lock\.yaml$
+      - id: eslint-notes
+        name: eslint (demo-notes)
+        entry: bash -c 'cd apps/demo-notes && pnpm exec eslint --max-warnings=0 --fix "${@#apps/demo-notes/}"' --
+        language: system
+        files: ^apps/demo-notes/.*\.(ts|tsx|js|mjs)$
+      - id: tsc-notes
+        name: tsc (demo-notes)
+        entry: bash -c 'cd apps/demo-notes && pnpm exec tsc --noEmit'
+        language: system
+        files: ^apps/demo-notes/.*\.(ts|tsx)$
         pass_filenames: false

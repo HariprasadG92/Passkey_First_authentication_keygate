@@ -145,6 +145,61 @@ async def test_admin_actions_limited_per_admin(
     _assert_limited(resp)
 
 
+async def test_token_endpoint_limits(client: httpx.AsyncClient, db_sessionmaker: Any) -> None:
+    from keygate.oidc.clients import build_client
+
+    async with db_sessionmaker() as db:
+        db.add(
+            build_client(
+                name="limits",
+                confidential=True,
+                redirect_uris=["http://127.0.0.1/cb"],
+                post_logout_redirect_uris=[],
+                allowed_scopes=["openid"],
+                created_by=None,
+                client_id="limits",
+                secret="s" * 43,
+            ).client
+        )
+        await db.commit()
+    # Per IP: unauthenticated junk still counts.
+    resp = await _exhaust(
+        lambda i: client.post("/oauth2/token", data={"grant_type": "x"}),
+        LIMITS["token:ip"].limit,
+    )
+    assert resp.status_code == 429
+    assert resp.json()["error"] == "slow_down"
+
+
+async def test_token_endpoint_limited_per_client(
+    client: httpx.AsyncClient, db_sessionmaker: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from keygate.oidc.clients import build_client
+    from keygate.security import rate_limit
+
+    async with db_sessionmaker() as db:
+        db.add(
+            build_client(
+                name="limits",
+                confidential=True,
+                redirect_uris=["http://127.0.0.1/cb"],
+                post_logout_redirect_uris=[],
+                allowed_scopes=["openid"],
+                created_by=None,
+                client_id="limits",
+                secret="s" * 43,
+            ).client
+        )
+        await db.commit()
+    # Lift the per-IP limit for this test so the per-client one is what trips.
+    monkeypatch.setitem(rate_limit.LIMITS, "token:ip", rate_limit.Limit(10_000, 60))
+    resp = await _exhaust(
+        lambda i: client.post("/oauth2/token", data={"grant_type": "x"}, auth=("limits", "s" * 43)),
+        LIMITS["token:client"].limit,
+    )
+    assert resp.status_code == 429
+
+
 def test_every_limit_is_exercised() -> None:
     """Guard against adding a limit without a test that hits it."""
     tested = {c[3] for c in ANONYMOUS_CASES} | {
@@ -152,5 +207,7 @@ def test_every_limit_is_exercised() -> None:
         "step_up:session",
         "email_change:user",
         "admin:actor",
+        "token:ip",
+        "token:client",
     }
     assert set(LIMITS) == tested

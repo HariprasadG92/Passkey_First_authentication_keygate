@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { describePasskeyError, signInWithPasskey } from "@/lib/passkeys";
+import { continueAfterSignIn, safeNext } from "@/lib/next-url";
 import { SOCIAL_ERRORS } from "@/lib/social";
 import { emailSchema } from "@/lib/validation";
 
@@ -21,6 +22,18 @@ export default function SignInPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [alt, setAlt] = useState<"totp" | "recovery" | null>(null);
+  const [next, setNext] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Returning to an app that asked Keygate to sign you in (OpenID Connect).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setNext(safeNext(params.get("next")));
+    if (params.get("reauth")) setNotice("Confirm it's you to continue to the app.");
+    if (params.get("signed_out")) setNotice("You've been signed out.");
+  }, []);
+
+  const finish = () => continueAfterSignIn(next, () => router.push("/account"));
 
   // Errors passed back from a social-login redirect (?error=...).
   useEffect(() => {
@@ -36,7 +49,7 @@ export default function SignInPage() {
     setError(null);
     try {
       await signInWithPasskey(withEmail);
-      router.push("/account");
+      finish();
     } catch (err) {
       setError(describePasskeyError(err));
     } finally {
@@ -59,6 +72,11 @@ export default function SignInPage() {
       <CardHeader>
         <CardTitle className="text-xl">Sign in</CardTitle>
         <CardDescription>Use the passkey saved on your device or password manager.</CardDescription>
+        {notice && (
+          <p className="text-sm font-medium" data-testid="signin-notice">
+            {notice}
+          </p>
+        )}
       </CardHeader>
       <CardContent className="space-y-6">
         <Button onClick={() => run()} className="w-full" disabled={busy}>
@@ -110,7 +128,7 @@ export default function SignInPage() {
               Use a recovery code
             </Button>
           </div>
-          {alt && <CodeSignIn key={alt} mode={alt} />}
+          {alt && <CodeSignIn key={alt} mode={alt} onSuccess={finish} />}
         </div>
 
         <p className="text-center text-sm text-muted-foreground">

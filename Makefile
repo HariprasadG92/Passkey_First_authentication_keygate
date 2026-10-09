@@ -9,6 +9,7 @@ export
 
 API_DIR := apps/api
 WEB_DIR := apps/web
+NOTES_DIR := apps/demo-notes
 COMPOSE := docker compose
 
 # Host-side URLs for the compose Postgres/Redis (published on 127.0.0.1 only).
@@ -29,6 +30,7 @@ help: ## Show this help
 install: .env ## Install local toolchains, deps and git hooks
 	cd $(API_DIR) && uv sync
 	cd $(WEB_DIR) && pnpm install --frozen-lockfile && pnpm exec playwright install chromium
+	cd $(NOTES_DIR) && pnpm install --frozen-lockfile
 	pre-commit install
 
 # ---------------------------------------------------------------- run
@@ -67,6 +69,10 @@ auditor: ## Grant the auditor role: make auditor email=someone@example.com
 	@test -n "$(email)" || (echo 'usage: make auditor email=someone@example.com' && exit 1)
 	$(COMPOSE) exec api python -m keygate.cli grant-role --email "$(email)" --role auditor
 
+.PHONY: rotate-keys
+rotate-keys: ## Start signing OIDC tokens with a new key (old key stays published until tokens expire)
+	$(COMPOSE) exec api python -m keygate.cli rotate-signing-key
+
 .PHONY: migration
 migration: ## Create a migration: make migration m="add users table"
 	@test -n "$(m)" || (echo 'usage: make migration m="message"' && exit 1)
@@ -95,7 +101,7 @@ test-e2e: up ## Full-stack E2E tests (Playwright + virtual WebAuthn authenticato
 	cd $(WEB_DIR) && pnpm test:e2e
 
 .PHONY: lint
-lint: lint-api lint-web ## Lint, format-check and type-check everything
+lint: lint-api lint-web lint-notes ## Lint, format-check and type-check everything
 
 .PHONY: lint-api
 lint-api:
@@ -105,10 +111,15 @@ lint-api:
 lint-web:
 	cd $(WEB_DIR) && pnpm lint && pnpm format:check && pnpm typecheck
 
+.PHONY: lint-notes
+lint-notes:
+	cd $(NOTES_DIR) && pnpm lint && pnpm format:check && pnpm typecheck
+
 .PHONY: format
 format: ## Auto-format all code
 	cd $(API_DIR) && uv run ruff check --fix . && uv run ruff format .
 	cd $(WEB_DIR) && pnpm format
+	cd $(NOTES_DIR) && pnpm format
 
 .PHONY: secrets-scan
 secrets-scan: ## Scan the working tree and git history for secrets

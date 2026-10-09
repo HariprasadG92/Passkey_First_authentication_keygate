@@ -24,6 +24,11 @@ export function AuthNav() {
             Users
           </Link>
         )}
+        {can("clients:read") && (
+          <Link href="/admin/clients" className="hover:text-foreground">
+            Apps
+          </Link>
+        )}
         {can("audit:read") && (
           <Link href="/admin/audit" className="hover:text-foreground">
             Audit log

@@ -30,7 +30,7 @@ from keygate.config import Settings
 from keygate.main import create_app
 
 API_DIR = Path(__file__).resolve().parents[1]
-TEST_SECRET = "test-secret-key-0123456789abcdefghijklmnopqrstuvwxyz"  # noqa: S105
+TEST_SECRET = "test-secret-key-0123456789abcdefghijklmnopqrstuvwxyz"
 ORIGIN = "http://localhost"
 
 _BASE_DB = os.environ.get(
@@ -50,6 +50,10 @@ TABLES = [
     "recovery_codes",
     "social_accounts",
     "user_roles",
+    "oauth_refresh_tokens",
+    "oauth_consents",
+    "oauth_clients",
+    "oidc_signing_keys",
     "users",
 ]  # roles/permissions are seed data from migrations: never truncated
 

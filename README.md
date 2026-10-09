@@ -7,8 +7,8 @@
 
 | Phase | Scope                                       | Status         |
 | ----- | ------------------------------------------- | -------------- |
-| 0     | Foundation: stack, tooling, git hooks       | 🔍 In review   |
-| 1     | Accounts, passkeys, sessions                | ⏳ Planned     |
+| 0     | Foundation: stack, tooling, git hooks       | ✅ Done        |
+| 1     | Accounts, passkeys, sessions                | ✅ Done        |
 | 2     | Credential management, MFA, recovery        | ⏳ Planned     |
 | 3     | Social login (GitHub, Google)               | ⏳ Planned     |
 | 4     | RBAC, admin dashboard, audit log            | ⏳ Planned     |
@@ -30,7 +30,16 @@ make dev        # creates .env from .env.example on first run, then builds and s
 | http://localhost/api/docs    | API docs (development only)         |
 | http://localhost:8025        | Mailpit: emails sent by Keygate     |
 
-Port 80 already taken? Set `GATEWAY_PORT` in `.env`.
+Port 80 already taken? Set `GATEWAY_PORT` in `.env` **and** `KEYGATE_PUBLIC_URL` to the
+same origin (e.g. `http://localhost:8080`): WebAuthn checks the exact origin.
+
+### Try it
+
+1. Open http://localhost/signup and enter any email address.
+2. Open Mailpit at http://localhost:8025 and click the confirmation link.
+3. Click **Confirm email**, then **Create passkey** (Touch ID, Windows Hello, your phone, or a
+   security key).
+4. Sign out, then **Sign in with a passkey**: no username needed.
 
 ## Development
 
@@ -40,7 +49,8 @@ Node.js 22 with [pnpm](https://pnpm.io/) 11, and [pre-commit](https://pre-commit
 ```bash
 make install    # deps, Playwright browser, git hooks
 make lint       # ruff, mypy --strict, eslint, prettier, tsc
-make test       # pytest (against compose Postgres/Redis) + Playwright E2E
+make test       # pytest (real Postgres/Redis) + Playwright smoke + full-stack E2E
+make test-e2e   # just the browser E2E (virtual WebAuthn authenticator via CDP)
 make help       # everything else
 ```
 

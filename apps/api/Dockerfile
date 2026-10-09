@@ -43,7 +43,7 @@ COPY --chown=keygate:keygate pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project
 ENV PATH="/app/.venv/bin:${PATH}"
 EXPOSE 8000
-CMD ["sh", "-c", "uv sync --frozen && exec uvicorn keygate.main:create_app --factory --host 0.0.0.0 --port 8000 --reload --reload-dir src --no-access-log"]
+CMD ["sh", "-c", "uv sync --frozen && alembic upgrade head && exec uvicorn keygate.main:create_app --factory --host 0.0.0.0 --port 8000 --reload --reload-dir src --no-access-log"]
 
 # ---------- runtime: minimal production image ----------
 FROM base AS runtime

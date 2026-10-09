@@ -36,6 +36,7 @@ class SessionLevel(enum.StrEnum):
 
 class EmailTokenPurpose(enum.StrEnum):
     SIGNUP = "signup"
+    EMAIL_CHANGE = "email_change"
 
 
 class User(Base):
@@ -101,6 +102,8 @@ class EmailToken(Base):
             values_callable=lambda e: [m.value for m in e],
         )
     )
+    # Set for tokens that act on an existing account (email change).
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -127,6 +130,9 @@ class Session(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Last time the user proved possession of a sign-in factor in this session (sign-in or
+    # step-up). Sensitive actions require this to be recent.
+    reauthenticated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship()
 

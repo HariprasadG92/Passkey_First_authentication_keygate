@@ -6,12 +6,23 @@ in logs or tracebacks by accident.
 
 from functools import lru_cache
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "test", "production"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+# Passwords that ship in defaults or .env.example. Production must never run with them.
+_KNOWN_DEV_PASSWORDS = frozenset(
+    {"", "keygate", "keygate-dev-only", "postgres", "password", "change-me", "changeme"}
+)
+MIN_PRODUCTION_PASSWORD_LENGTH = 16
+
+
+def _url_password(url: str) -> str:
+    return urlsplit(url).password or ""
 
 
 class Settings(BaseSettings):
@@ -46,9 +57,17 @@ class Settings(BaseSettings):
         return not self.is_production
 
     @model_validator(mode="after")
-    def _refuse_dev_defaults_in_production(self) -> Self:
-        if self.is_production and "keygate:keygate@" in self.database_url.get_secret_value():
-            raise ValueError("Default database credentials must not be used in production.")
+    def _refuse_weak_credentials_in_production(self) -> Self:
+        """Fail closed: a production deploy with copied dev credentials must not start."""
+        if not self.is_production:
+            return self
+        for name, url in (("database", self.database_url), ("redis", self.redis_url)):
+            password = _url_password(url.get_secret_value())
+            if password in _KNOWN_DEV_PASSWORDS or len(password) < MIN_PRODUCTION_PASSWORD_LENGTH:
+                raise ValueError(
+                    f"Weak or development {name} credentials must not be used in production "
+                    f"(use a unique password of at least {MIN_PRODUCTION_PASSWORD_LENGTH} chars)."
+                )
         return self
 
 

@@ -4,6 +4,7 @@ import pytest
 from keygate.config import Settings
 from keygate.main import create_app
 from tests.conftest import _client_for
+from tests.test_config import PROD_DB, PROD_REDIS
 
 EXPECTED_HEADERS = {
     "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
@@ -29,7 +30,8 @@ async def test_no_hsts_outside_production(client: httpx.AsyncClient) -> None:
 async def test_production_sets_hsts_and_disables_docs() -> None:
     prod = Settings(
         environment="production",
-        database_url="postgresql+asyncpg://prod:s3cret@db/keygate",  # type: ignore[arg-type]
+        database_url=PROD_DB,  # type: ignore[arg-type]
+        redis_url=PROD_REDIS,  # type: ignore[arg-type]
     )
     async for client in _client_for(create_app(prod)):
         resp = await client.get("/health")

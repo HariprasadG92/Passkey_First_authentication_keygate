@@ -59,10 +59,27 @@ export async function magicLinkFor(email: string): Promise<string> {
   throw new Error(`No magic link for ${email} in Mailpit`);
 }
 
-export const test = base.extend<{ authenticator: VirtualAuthenticator }>({
+/** Reset rate-limit counters (from outside the app: there is no bypass in the API). The
+ * suite signs up more accounts from one IP than the real per-IP limit allows per hour. */
+export function resetRateLimits(): void {
+  const script = "redis-cli --scan --pattern 'rl:*' | xargs -r redis-cli del > /dev/null";
+  execFileSync("docker", ["compose", "exec", "-T", "redis", "sh", "-c", script], {
+    cwd: "../..",
+    stdio: "pipe",
+  });
+}
+
+export const test = base.extend<{ authenticator: VirtualAuthenticator; freshLimits: void }>({
   authenticator: async ({ page }, use) => {
     await use(await VirtualAuthenticator.attach(page));
   },
+  freshLimits: [
+    async ({}, use) => {
+      resetRateLimits();
+      await use();
+    },
+    { auto: true },
+  ],
 });
 
 export { expect };

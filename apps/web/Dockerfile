@@ -2,10 +2,10 @@
 # Multi-stage build for the Next.js UI. The runtime image holds only Next's standalone
 # server output (traced, production-only dependencies) and runs as an unprivileged user.
 
-ARG NODE_VERSION=22
+# Base images are pinned by digest (tag kept for readability). Dependabot proposes updates.
 
 # ---------- base ----------
-FROM node:${NODE_VERSION}-alpine AS base
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS base
 ENV PNPM_HOME=/pnpm \
     NEXT_TELEMETRY_DISABLED=1
 ENV PATH="${PNPM_HOME}:${PATH}"
@@ -37,13 +37,17 @@ ENV NODE_ENV=production
 RUN pnpm build
 
 # ---------- runtime ----------
-FROM node:${NODE_VERSION}-alpine AS runtime
+FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS runtime
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
     PORT=3000
 WORKDIR /app
-RUN addgroup -S -g 10001 keygate && adduser -S -u 10001 -G keygate -H -s /sbin/nologin keygate
+# The runtime only needs `node`: drop the package managers bundled with the base image
+# (npm, npx, corepack, yarn), which are attack surface and carry their own CVEs.
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
+        /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-* \
+    && addgroup -S -g 10001 keygate && adduser -S -u 10001 -G keygate -H -s /sbin/nologin keygate
 COPY --from=builder --chown=keygate:keygate /app/.next/standalone ./
 COPY --from=builder --chown=keygate:keygate /app/.next/static ./.next/static
 COPY --from=builder --chown=keygate:keygate /app/public ./public

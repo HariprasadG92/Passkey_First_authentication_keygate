@@ -43,6 +43,7 @@ from keygate.auth.stepup import SteppedUpSession, require_recent_auth
 from keygate.config import Settings
 from keygate.db.types import utcnow
 from keygate.errors import KeygateError
+from keygate.rbac.service import assign_default_role
 from keygate.security.rate_limit import LIMITS
 from keygate.social.models import SocialAccount
 from keygate.social.providers import PROVIDERS, Provider, SocialIdentity, enabled_providers
@@ -281,6 +282,7 @@ async def callback(
         )
         db.add(user)
         await db.flush()
+        await assign_default_role(db, user.id)
         db.add(_social_row(user.id, identity))
         destination = "/account?welcome=social"
 

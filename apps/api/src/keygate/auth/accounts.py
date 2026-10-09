@@ -19,6 +19,7 @@ from keygate.auth.email import OutgoingEmail
 from keygate.auth.models import EmailToken, EmailTokenPurpose, User, WebAuthnCredential
 from keygate.config import Settings
 from keygate.db.types import utcnow
+from keygate.rbac.service import assign_default_role
 from keygate.security.tokens import generate_token, hash_token
 
 WEBAUTHN_USER_HANDLE_BYTES = 32
@@ -136,6 +137,8 @@ async def consume_signup_token(db: AsyncSession, token: str) -> User:
             webauthn_user_handle=secrets.token_bytes(WEBAUTHN_USER_HANDLE_BYTES),
         )
         db.add(user)
+        await db.flush()
+        await assign_default_role(db, user.id)
     elif await credential_count(db, user) > 0:
         # A passkey was registered after this link was sent: email alone must never
         # grant access to an account that has a passkey.

@@ -30,6 +30,10 @@ what it costs. New decisions are appended; superseded ones are marked, never del
 | 023 | Security notification emails for every credential change        | Accepted | 2     |
 | 024 | Email change: verify new address, notify old, same user only    | Accepted | 2     |
 | 025 | Owner-scoped lookups: other users' objects are a 404            | Accepted | 2     |
+| 026 | Authlib protocol primitives + httpx + joserfc for the OAuth client | Accepted | 3   |
+| 027 | Server-side OAuth state with PKCE, nonce and a browser binding  | Accepted | 3     |
+| 028 | Account linking: match by subject, never merge, confirm explicitly | Accepted | 3   |
+| 029 | Social sign-up allowed; social counts as a sign-in method       | Accepted | 3     |
 
 ---
 
@@ -393,3 +397,68 @@ reasonable for high-value deployments).
 `/account/sessions/{id}`) queries with `WHERE id = :id AND user_id = :current_user`. A foreign
 ID is a 404, never a 403, so IDs can't be probed for existence. Tests cover rename, delete and
 revoke against another user's objects.
+
+---
+
+## ADR-026: Authlib protocol primitives + httpx + joserfc for the OAuth client
+
+**Decision.** Use Authlib for the OAuth *protocol* pieces (`prepare_grant_uri`,
+`create_s256_code_challenge`), the app's existing `httpx` client for HTTP, and **joserfc**
+(the JOSE library that succeeds `authlib.jose`, same author) to verify Google ID tokens.
+
+**Context.** Authlib 1.8's `httpx_client` integration is deprecated in favour of a new `httpx2`
+package. Pulling a second HTTP client into an identity provider's dependency tree to silence a
+deprecation warning wasn't worth it. The protocol surface we need is small and every step is
+explicit and tested.
+
+**Consequences.** If Authlib's httpx2 integration matures, swapping in `AsyncOAuth2Client` is
+a local change in `social/service.py`.
+
+## ADR-027: Server-side OAuth state with PKCE, nonce and a browser binding
+
+**Decision.** `POST /auth/social/{provider}/start` (CSRF-protected JSON) creates `state`,
+a PKCE **S256** `code_verifier`, an OIDC `nonce` (Google) and a random **browser-binding**
+value. They are stored in Redis under `sha256(state)`, single-use (`GETDEL`), with a 10-minute
+TTL. The binding is set as an HttpOnly `SameSite=Lax` cookie, and only its hash is stored. The
+callback requires the state, a matching provider, and the binding cookie from *the same browser*.
+Google ID tokens are verified against Google's JWKS (RS256 only, refetched once on unknown
+`kid`) with `iss`, `aud`, `exp`, `sub`, `nonce` and (multi-audience) `azp` checks.
+
+**Context.** `state` alone stops forged callbacks but not **login CSRF via a stolen-but-valid
+state**: an attacker starts a flow, stops at the callback, and gets a victim's browser to load
+that URL, signing the victim into the attacker's account. The browser binding defeats this.
+PKCE makes an intercepted authorization code worthless. The nonce ties the ID token to this
+specific login.
+
+**Consequences.** The callback is a state-changing `GET`. That's inherent to OAuth redirects,
+and it's protected by the above rather than by the CSRF header.
+
+## ADR-028: Account linking: match by subject, never merge, confirm explicitly
+
+**Decision.**
+
+- Identities are matched only by `(provider, subject)`: GitHub's numeric user ID, Google's
+  `sub`. **Never by email**: emails change and get reassigned.
+- If an unlinked identity's verified email belongs to an existing account, sign-in is
+  **refused** with guidance ("sign in with your passkey, then link from settings").
+- Linking needs a full, **stepped-up** session, then a provider round trip, then an
+  **explicit confirmation** page showing the identity, then `POST /account/social/confirm`.
+  The pending link is single-use, expires in 10 minutes, and only the user who started it can
+  redeem it.
+- Unverified provider emails (GitHub: no *primary verified* address; Google:
+  `email_verified != true`) can't create or link accounts.
+
+**Context.** Auto-linking by email is a well-known takeover path: register an account at a
+provider that doesn't verify emails using the victim's address, then "sign in with X" and land
+in the victim's account.
+
+## ADR-029: Social sign-up allowed; social counts as a sign-in method
+
+**Decision.** A new, verified social identity may create an account (no passkey yet). The UI
+immediately prompts the user to add one, and a fresh social sign-in satisfies step-up so they
+can. Linked social accounts count toward last-method protection. Social re-authentication is
+also a step-up option (`intent=stepup`), and it must return an identity already linked to the
+current user.
+
+**Trade-offs.** A social-only account's security is the provider account's security. That's
+acceptable as an on-ramp, and the passkey nudge is prominent.

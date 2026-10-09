@@ -67,6 +67,9 @@ class SecurityMiddleware:
 
         request_id = _resolve_request_id(scope)
         path: str = scope["path"]
+        # Behind the gateway the app is mounted at root_path (/api); match routes without it.
+        root_path: str = scope.get("root_path", "")
+        route_path = path.removeprefix(root_path) if root_path else path
         start = time.perf_counter()
         status_code = 500
         response_started = False
@@ -80,7 +83,7 @@ class SecurityMiddleware:
                 response_started = True
                 status_code = message["status"]
                 headers = MutableHeaders(scope=message)
-                self._apply_headers(headers, path)
+                self._apply_headers(headers, route_path)
                 headers["X-Request-ID"] = request_id
             await send(message)
 

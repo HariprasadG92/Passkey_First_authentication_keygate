@@ -58,3 +58,26 @@ async def test_replaces_malformed_inbound_request_id(
     resp = await client.get("/health", headers={"X-Request-ID": bad_id})
     assert resp.headers["x-request-id"] != bad_id
     assert len(resp.headers["x-request-id"]) == 32
+
+
+async def test_docs_csp_exemption_only_in_development_and_honours_root_path(
+    settings: Settings,
+) -> None:
+    app = create_app(settings)
+    async for client in _client_for(app):
+        docs = await client.get("/docs")
+        assert docs.status_code == 200
+        assert "content-security-policy" not in docs.headers
+        # Everything else keeps the strict CSP.
+        assert "content-security-policy" in (await client.get("/health")).headers
+
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app, root_path="/api"),
+            base_url="http://testserver",
+        ) as client,
+    ):
+        docs = await client.get("/api/docs")
+        assert docs.status_code == 200
+        assert "content-security-policy" not in docs.headers

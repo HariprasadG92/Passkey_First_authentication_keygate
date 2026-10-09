@@ -40,6 +40,14 @@ what it costs. New decisions are appended; superseded ones are marked, never del
 | 033 | First admin only via an operator CLI                            | Accepted | 4     |
 | 034 | Audit log API: read-only, keyset-paginated, denials audited     | Accepted | 4     |
 | 035 | Rate-limit policy: one table, every limit tested                | Accepted | 4     |
+| 036 | OIDC: Authorization Code + PKCE (S256) only, exact redirect URIs | Accepted | 5    |
+| 037 | Codes in Redis, single-use, replay revokes issued tokens        | Accepted | 5     |
+| 038 | JWT access tokens (RFC 9068), audience-restricted, 10 minutes   | Accepted | 5     |
+| 039 | Rotating refresh tokens with family-wide reuse detection        | Accepted | 5     |
+| 040 | ES256 signing keys, encrypted at rest, rotated via CLI          | Accepted | 5     |
+| 041 | Consent per user and client; RP-initiated logout without open redirects | Accepted | 5 |
+| 042 | Notes demo: confidential client using the BFF pattern           | Accepted | 5     |
+| 043 | CSRF token is reused while valid (fixes a token-rotation race)  | Accepted | 5     |
 
 ---
 
@@ -563,3 +571,102 @@ Acceptable here, since sliding windows cost more Redis work for little gain at t
 Per-account limits can be used to lock a victim out for a window (a deliberate,
 time-bounded trade-off). Passkey sign-in isn't limited per account: an assertion can't be
 brute-forced.
+
+---
+
+## ADR-036: OIDC: Authorization Code + PKCE (S256) only, exact redirect URIs
+
+**Decision.** Keygate's issuer is the site origin (`http://localhost` in dev). Discovery and
+`/oauth2/*` are served at the root; the gateway routes them to the API. Only
+`response_type=code` and `response_mode=query`. **PKCE is mandatory for every client,
+confidential ones included**, and only `S256` (no `plain`). No implicit or hybrid flows, no
+request objects. `redirect_uri` is compared by **exact string match** with no wildcards, prefix
+or case-folding. An unknown client or unregistered redirect URI shows Keygate's own error page and
+**never redirects**. Responses include `iss` (RFC 9207) against mix-up attacks. Repeated
+parameters are rejected. This follows the OAuth 2.0 Security BCP (RFC 9700) and OAuth 2.1.
+
+**Context.** Every relaxation here is a known attack path: implicit flow (tokens in URLs and
+history), `plain` PKCE (verifier equals challenge), and lenient redirect matching (code theft
+via attacker-controlled paths).
+
+## ADR-037: Codes in Redis, single-use, replay revokes issued tokens
+
+**Decision.** Authorization codes are 256 random bits, stored in Redis under their SHA-256 with
+a **60-second TTL**, and redeemed with `GETDEL`. A code is bound to the client, the exact redirect
+URI, the PKCE challenge, the nonce and the user. After redemption a "spent" marker records the
+refresh-token family it produced. Presenting the code again revokes that family and logs a
+high-severity `oauth.code_reuse` event (RFC 6749 §4.1.2).
+
+## ADR-038: JWT access tokens (RFC 9068), audience-restricted, 10 minutes
+
+**Decision.** Access tokens are ES256 JWTs with `typ: at+jwt`, `iss`, `sub`, `aud`, `scope`,
+`client_id`, `jti` and a 10-minute `exp`. `aud` always contains the issuer (for userinfo), plus
+`notes-api` **only** when a `notes:*` scope was granted, so a token for one API can't be
+replayed at another. The `typ` header stops an ID token being used as an access token.
+Resource servers validate locally with JWKS.
+
+**Trade-offs.** Self-contained tokens can't be revoked instantly at third-party resource
+servers. `/oauth2/revoke` adds the `jti` to a deny-list that Keygate's own userinfo honours,
+and the 10-minute lifetime bounds the exposure elsewhere. Opaque tokens plus introspection
+would revoke instantly but put Keygate on every API call's critical path.
+
+## ADR-039: Rotating refresh tokens with family-wide reuse detection
+
+**Decision.** Refresh tokens are opaque, stored as SHA-256, valid for 7 days (sliding within a
+30-day family lifetime). Each use **rotates** the token: the old one is marked used and a
+successor is issued in the same family. Presenting a used token means it was copied, so the
+**entire family is revoked** (attacker and legitimate client alike) and a high-severity event is
+written. Scopes can be narrowed on refresh, never widened. Suspended users can't refresh, and
+their family is revoked.
+
+## ADR-040: ES256 signing keys, encrypted at rest, rotated via CLI
+
+**Decision.** Signing keys are ES256 (P-256). Private JWKs are encrypted with AES-256-GCM and
+bound to their `kid` as associated data. Lifecycle: **active** (exactly one signs new tokens),
+then **retired** (still published in JWKS so its tokens keep verifying), then **removed** (after twice
+the longest token lifetime). `make rotate-keys` rotates. Every token header carries `kid`. The
+first key is generated on first use.
+
+**Consequences.** Clients that cache JWKS must refetch on an unknown `kid`. Mainstream
+libraries (openid-client, jose) do.
+
+## ADR-041: Consent per user and client; RP-initiated logout without open redirects
+
+**Decision.** Consent is stored per (user, client) and re-asked whenever a client requests a
+scope beyond what was approved, or sends `prompt=consent`. The consent screen shows the client
+name, the host it will return to, and each scope in plain language. `prompt=none` returns
+`login_required`/`consent_required` instead of showing UI. `prompt=login` and `max_age` force a
+fresh sign-in (the return URL drops `prompt=login` so it can't loop).
+
+RP-initiated logout ends the Keygate session (and that client's refresh tokens) only when the
+`id_token_hint` is a valid Keygate ID token **for the signed-in user**. It redirects only to a
+`post_logout_redirect_uri` registered by the client the hint was issued to. Anything else lands
+on Keygate's own "Sign out?" page.
+
+The sign-in page's `?next=` is accepted only if it is a relative `/oauth2/authorize?...` path,
+so it can't be used for open redirects (an E2E test tries `//evil.example`).
+
+## ADR-042: Notes demo: confidential client using the BFF pattern
+
+**Decision.** `apps/demo-notes` is a confidential client using **openid-client**. Tokens live
+only on its server, in an A256GCM-encrypted, HttpOnly, SameSite=Lax cookie (the
+*backend-for-frontend* pattern). Browser JavaScript never sees a token. Its `/api/notes`
+routes act as an independent **resource server**: they validate the bearer token with JWKS
+(`typ`, `iss`, `aud=notes-api`, `exp`, scope `notes:read`/`notes:write`). The BFF forwards to
+them with the access token, refreshing (and rotating) as needed. Notes runs on
+`http://127.0.0.1:3001`: a different cookie *host* from `localhost`, since cookies ignore ports
+and Keygate's session cookie must never reach an RP. Server-to-server calls go to Keygate's
+internal URL while all validation still uses the public issuer (a `customFetch` rewrite).
+
+**Alternatives.** A SPA public client with tokens in the browser (simpler, but tokens become
+XSS loot); `notes.localhost` (Safari doesn't resolve `*.localhost`).
+
+## ADR-043: CSRF token is reused while valid (fixes a token-rotation race)
+
+**Decision.** `GET /auth/session` returns the browser's existing CSRF token if it's still valid
+for the current session, and only issues a new one when it's missing or bound to a different
+session. Tokens still change whenever the session changes (sign-in, step-up, sign-out).
+
+**Context.** Found by the Phase 5 E2E suite. Minting a new token on every call let two
+concurrent requests (the header nav and the consent page) race: one read the cookie, the other
+replaced it, and the first then sent a header that no longer matched the cookie, giving a 403.

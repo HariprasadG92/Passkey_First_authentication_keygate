@@ -26,20 +26,53 @@ def test_secrets_are_masked_in_repr() -> None:
 )
 def test_production_rejects_weak_credentials(database_url: str, redis_url: str) -> None:
     with pytest.raises(ValidationError, match="must not be used in production"):
-        Settings(
-            environment="production",
-            database_url=database_url,  # type: ignore[arg-type]
-            redis_url=redis_url,  # type: ignore[arg-type]
-        )
+        prod_settings(database_url=database_url, redis_url=redis_url)
 
 
-def test_production_accepts_strong_credentials() -> None:
-    s = Settings(
-        environment="production",
-        database_url=PROD_DB,  # type: ignore[arg-type]
-        redis_url=PROD_REDIS,  # type: ignore[arg-type]
-    )
+PROD_SECRET = "q" * 48
+
+
+def prod_settings(**overrides: object) -> Settings:
+    values: dict[str, object] = {
+        "environment": "production",
+        "database_url": PROD_DB,
+        "redis_url": PROD_REDIS,
+        "secret_key": PROD_SECRET,
+        "public_url": "https://id.example.com",
+        "webauthn_rp_id": "example.com",
+        "webauthn_origins": ["https://id.example.com"],
+    }
+    values.update(overrides)
+    return Settings(**values)  # type: ignore[arg-type]
+
+
+def test_production_accepts_strong_configuration() -> None:
+    s = prod_settings()
     assert s.is_production
+    assert s.secure_cookies
+    assert s.session_cookie_name == "__Host-kg_session"
+    assert s.csrf_cookie_name == "__Host-kg_csrf"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"secret_key": "dev-only-insecure-secret-key-do-not-use-in-production"}, "SECRET_KEY"),
+        ({"secret_key": "too-short"}, "SECRET_KEY"),
+        ({"cookie_secure": False}, "Secure"),
+        ({"public_url": "http://id.example.com"}, "https"),
+        ({"webauthn_origins": ["http://id.example.com"]}, "https"),
+    ],
+)
+def test_production_rejects_insecure_settings(overrides: dict[str, object], message: str) -> None:
+    with pytest.raises(ValidationError, match=message):
+        prod_settings(**overrides)
+
+
+def test_development_uses_unprefixed_non_secure_cookies() -> None:
+    s = Settings(environment="development")
+    assert not s.secure_cookies
+    assert s.session_cookie_name == "kg_session"
 
 
 def test_development_allows_dev_credentials() -> None:

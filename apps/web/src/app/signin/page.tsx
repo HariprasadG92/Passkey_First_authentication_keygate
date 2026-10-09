@@ -2,15 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Fingerprint } from "lucide-react";
 import { CodeSignIn } from "@/components/code-sign-in";
 import { FormError } from "@/components/form-message";
+import { SocialButtons } from "@/components/social-buttons";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { describePasskeyError, signInWithPasskey } from "@/lib/passkeys";
+import { SOCIAL_ERRORS } from "@/lib/social";
 import { emailSchema } from "@/lib/validation";
 
 export default function SignInPage() {
@@ -19,6 +21,15 @@ export default function SignInPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [alt, setAlt] = useState<"totp" | "recovery" | null>(null);
+
+  // Errors passed back from a social-login redirect (?error=...).
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("error");
+    if (code) {
+      setError(SOCIAL_ERRORS[code] ?? SOCIAL_ERRORS.social_failed);
+      window.history.replaceState(null, "", "/signin");
+    }
+  }, []);
 
   async function run(withEmail?: string) {
     setBusy(true);
@@ -76,6 +87,8 @@ export default function SignInPage() {
             Continue
           </Button>
         </form>
+
+        <SocialButtons onError={setError} />
 
         <FormError message={error} />
 

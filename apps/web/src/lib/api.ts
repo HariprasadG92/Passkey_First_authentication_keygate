@@ -81,4 +81,26 @@ export type Passkey = {
   transports: string[];
 };
 
-export type Account = { user: User; passkeys: Passkey[] };
+export type Account = {
+  user: User;
+  passkeys: Passkey[];
+  totp_enabled: boolean;
+  recovery_codes_remaining: number;
+  step_up_valid_until: string | null;
+};
+
+export type ActiveSession = {
+  id: string;
+  current: boolean;
+  auth_method: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+  last_seen_at: string;
+};
+
+export type TotpEnrolment = { secret: string; otpauth_uri: string; qr_svg_data_uri: string };
+
+export function isStepUpRequired(err: unknown): boolean {
+  return err instanceof ApiError && err.code === "step_up_required";
+}

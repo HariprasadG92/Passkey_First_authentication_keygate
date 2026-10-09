@@ -78,4 +78,5 @@ LIMITS: dict[str, Limit] = {
     "step_up:session": Limit(10, 300),
     "email_change:user": Limit(3, 3600),
     "social_start:ip": Limit(30, 300),
+    "admin:actor": Limit(60, 60),
 }

@@ -49,3 +49,24 @@ export async function signInWithPasskey(email?: string): Promise<SessionInfo> {
     body: { ceremony_id, credential },
   });
 }
+
+export async function addPasskey(friendlyName: string): Promise<void> {
+  const optionsJSON = await api<PublicKeyCredentialCreationOptionsJSON>(
+    "/account/passkeys/register/options",
+    { method: "POST" },
+  );
+  const credential = await startRegistration({ optionsJSON });
+  await api("/account/passkeys/register/verify", {
+    method: "POST",
+    body: { credential, friendly_name: friendlyName || null },
+  });
+}
+
+export async function stepUpWithPasskey(): Promise<void> {
+  const optionsJSON = await api<PublicKeyCredentialRequestOptionsJSON>(
+    "/auth/step-up/passkey/options",
+    { method: "POST" },
+  );
+  const credential = await startAuthentication({ optionsJSON });
+  await api("/auth/step-up/passkey/verify", { method: "POST", body: { credential } });
+}

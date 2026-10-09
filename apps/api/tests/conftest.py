@@ -40,7 +40,15 @@ _BASE_REDIS = os.environ.get("KEYGATE_REDIS_URL", "redis://127.0.0.1:6379/0")
 TEST_DB_URL = make_url(_BASE_DB).set(database=f"{make_url(_BASE_DB).database}_test")
 TEST_REDIS_URL = re.sub(r"/\d+$", "", _BASE_REDIS) + "/15"
 
-TABLES = ["audit_events", "email_tokens", "sessions", "webauthn_credentials", "users"]
+TABLES = [
+    "audit_events",
+    "email_tokens",
+    "sessions",
+    "webauthn_credentials",
+    "totp_credentials",
+    "recovery_codes",
+    "users",
+]
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -190,6 +198,19 @@ async def raw_client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     """A client that does *not* add CSRF headers, for testing the protection itself."""
     async for c in _client_for(app):
         yield c
+
+
+@pytest.fixture
+async def second_client(
+    app: FastAPI, client: httpx.AsyncClient
+) -> AsyncIterator[httpx.AsyncClient]:
+    """Another browser for the same app (shares the app's lifespan via ``client``)."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url=ORIGIN
+    ) as other:
+        _attach_csrf(other)
+        await other.get("/auth/session")
+        yield other
 
 
 @pytest.fixture

@@ -9,7 +9,7 @@
 | ----- | ------------------------------------------- | -------------- |
 | 0     | Foundation: stack, tooling, git hooks       | ✅ Done        |
 | 1     | Accounts, passkeys, sessions                | ✅ Done        |
-| 2     | Credential management, MFA, recovery        | ⏳ Planned     |
+| 2     | Credential management, MFA, recovery        | ✅ Done        |
 | 3     | Social login (GitHub, Google)               | ⏳ Planned     |
 | 4     | RBAC, admin dashboard, audit log            | ⏳ Planned     |
 | 5     | Keygate as an OIDC provider + demo app      | ⏳ Planned     |
@@ -40,6 +40,8 @@ same origin (e.g. `http://localhost:8080`): WebAuthn checks the exact origin.
 3. Click **Confirm email**, then **Create passkey** (Touch ID, Windows Hello, your phone, or a
    security key).
 4. Sign out, then **Sign in with a passkey**: no username needed.
+5. On the account page: add more passkeys, set up an authenticator app, generate recovery
+   codes, review and revoke sessions. Sensitive changes ask you to re-confirm with your passkey.
 
 ## Development
 
@@ -53,6 +55,9 @@ make test       # pytest (real Postgres/Redis) + Playwright smoke + full-stack E
 make test-e2e   # just the browser E2E (virtual WebAuthn authenticator via CDP)
 make help       # everything else
 ```
+
+After changing Python dependencies, run `docker compose restart api`: the dev container
+syncs dependencies on start, while code changes hot-reload on their own.
 
 ## Repository layout
 

@@ -1,7 +1,9 @@
+import base64
+
 import pytest
 from pydantic import ValidationError
 
-from keygate.config import Settings
+from keygate.config import DEV_ENCRYPTION_KEY, Settings
 
 STRONG = "x7Qp2vLm9Zr4Tt8Wn3Kb"
 PROD_DB = f"postgresql+asyncpg://keygate:{STRONG}@db:5432/keygate"
@@ -41,6 +43,8 @@ def prod_settings(**overrides: object) -> Settings:
         "public_url": "https://id.example.com",
         "webauthn_rp_id": "example.com",
         "webauthn_origins": ["https://id.example.com"],
+        "encryption_keys": {"k1": base64.b64encode(b"k" * 32).decode()},
+        "encryption_key_id": "k1",
     }
     values.update(overrides)
     return Settings(**values)  # type: ignore[arg-type]
@@ -62,6 +66,15 @@ def test_production_accepts_strong_configuration() -> None:
         ({"cookie_secure": False}, "Secure"),
         ({"public_url": "http://id.example.com"}, "https"),
         ({"webauthn_origins": ["http://id.example.com"]}, "https"),
+        (
+            {
+                "encryption_keys": {"dev": DEV_ENCRYPTION_KEY},
+                "encryption_key_id": "dev",
+            },
+            "development encryption key",
+        ),
+        ({"encryption_key_id": "missing"}, "must name a configured"),
+        ({"encryption_keys": {"k1": base64.b64encode(b"short").decode()}}, "32 bytes"),
     ],
 )
 def test_production_rejects_insecure_settings(overrides: dict[str, object], message: str) -> None:
